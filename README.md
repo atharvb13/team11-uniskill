@@ -1,1 +1,3 @@
-# team11-uniskill
+# UniSkill - Skill-sharing and interest-matching platform
+
+UniSkill is a university-focused skill-sharing and interest-matching platform designed to help students connect with peers to teach and learn skills collaboratively within their academic community. Users register using their university email and create profiles that highlight the skills they possess, the skills they want to learn, and their proficiency levels, along with optional portfolios or work samples. The platform provides a searchable skill directory with keyword matching, autocomplete, and personalized recommendations based on users’ learning interests. Through a structured request system with daily limits and expiration periods, students can request to learn from peers who possess relevant skills, and once a request is accepted, they can collaborate through a built-in chat system.
