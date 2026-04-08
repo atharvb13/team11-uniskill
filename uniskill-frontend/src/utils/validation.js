@@ -1,11 +1,12 @@
-export const umassEmailRegex = /^[a-zA-Z0-9._%+-]+@umass\.edu$/;
+export const umassEmailRegex = /^[a-zA-Z0-9._%+-]+@umass\.edu$/i;
 
 export function validateLogin(values) {
   const errors = {};
+  const email = values.email.trim();
 
-  if (!values.email.trim()) {
+  if (!email) {
     errors.email = "Email is required";
-  } else if (!umassEmailRegex.test(values.email)) {
+  } else if (!umassEmailRegex.test(email)) {
     errors.email = "Use your UMass email address ending in @umass.edu";
   }
 
@@ -20,14 +21,15 @@ export function validateLogin(values) {
 
 export function validateRegister(values) {
   const errors = {};
+  const email = values.email.trim();
 
   if (!values.fullName.trim()) {
     errors.fullName = "Full name is required";
   }
 
-  if (!values.email.trim()) {
+  if (!email) {
     errors.email = "Email is required";
-  } else if (!umassEmailRegex.test(values.email)) {
+  } else if (!umassEmailRegex.test(email)) {
     errors.email = "Only @umass.edu email addresses are allowed";
   }
 
