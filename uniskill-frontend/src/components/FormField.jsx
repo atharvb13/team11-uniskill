@@ -3,7 +3,16 @@ import React from "react";
 const inputBase =
   "w-full rounded-2xl border border-slate-200 bg-white/80 px-11 py-3 text-sm text-slate-800 shadow-sm outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100";
 
-export default function FormField({ icon: Icon, type = "text", placeholder, value, onChange, error }) {
+export default function FormField({
+  icon: Icon,
+  type = "text",
+  placeholder,
+  value,
+  onChange,
+  error,
+  autoComplete,
+  disabled,
+}) {
   return (
     <div>
       <div className="relative">
@@ -13,6 +22,8 @@ export default function FormField({ icon: Icon, type = "text", placeholder, valu
           placeholder={placeholder}
           value={value}
           onChange={onChange}
+          autoComplete={autoComplete}
+          disabled={disabled}
           className={`${inputBase} ${error ? "border-red-400 focus:border-red-500 focus:ring-red-100" : ""}`}
         />
       </div>
