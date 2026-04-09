@@ -7,6 +7,16 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+.venv/
+venv/
+uniskill-backend/.venv/
+uniskill-backend/venv/
+
 # Dependencies/build artifacts
 node_modules/
 uniskill-frontend/node_modules/

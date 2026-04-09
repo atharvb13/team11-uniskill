@@ -73,10 +73,8 @@ export default function EmailConfirmedPage() {
         </p>
         {configError ? (
           <p className="mt-3 text-xs text-amber-800">
-            Add <code className="rounded bg-amber-50 px-1">VITE_SUPABASE_URL</code> and{" "}
-            <code className="rounded bg-amber-50 px-1">VITE_SUPABASE_ANON_KEY</code> to{" "}
-            <code className="rounded bg-amber-50 px-1">.env</code> so confirmation links can finish in the app (then
-            restart Vite).
+            Set Supabase URL and anon key in <code className="rounded bg-amber-50 px-1">uniskill-frontend/.env</code>{" "}
+            (see <code className="rounded bg-amber-50 px-1">.env.example</code>), then restart the Vite dev server.
           </p>
         ) : null}
         <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-center">
