@@ -20,8 +20,13 @@ export default function RegisterPage() {
   const [submitting, setSubmitting] = useState(false);
   const [serverMessage, setServerMessage] = useState("");
   const [registrationSuccess, setRegistrationSuccess] = useState(false);
+  /** Inline errors only after first submit attempt — avoids all-red empty form on load. */
+  const [showFieldErrors, setShowFieldErrors] = useState(false);
 
-  const errors = useMemo(() => validateRegister(formData), [formData]);
+  const errors = useMemo(
+    () => (showFieldErrors ? validateRegister(formData) : {}),
+    [formData, showFieldErrors],
+  );
 
   useEffect(() => {
     if (!registrationSuccess) {
@@ -38,7 +43,7 @@ export default function RegisterPage() {
 
     const validationErrors = validateRegister(formData);
     if (Object.keys(validationErrors).length > 0) {
-      alert("Please fix the highlighted fields.");
+      setShowFieldErrors(true);
       return;
     }
 

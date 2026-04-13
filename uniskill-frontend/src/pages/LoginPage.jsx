@@ -18,7 +18,12 @@ export default function LoginPage() {
   const [formData, setFormData] = useState({ identifier: "", password: "" });
   const [submitting, setSubmitting] = useState(false);
   const [serverMessage, setServerMessage] = useState("");
-  const errors = useMemo(() => validateLogin(formData), [formData]);
+  const [showFieldErrors, setShowFieldErrors] = useState(false);
+
+  const errors = useMemo(
+    () => (showFieldErrors ? validateLogin(formData) : {}),
+    [formData, showFieldErrors],
+  );
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -26,7 +31,7 @@ export default function LoginPage() {
 
     const validationErrors = validateLogin(formData);
     if (Object.keys(validationErrors).length > 0) {
-      alert("Please fix the highlighted fields.");
+      setShowFieldErrors(true);
       return;
     }
 
