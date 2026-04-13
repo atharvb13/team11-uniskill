@@ -37,5 +37,8 @@ create table if not exists public.user_skills (
   unique (user_id, skill_id)
 );
 
+-- If an older DB has a check that blocks beginner + can_teach, remove it so the API can save beginner:
+--   alter table public.user_skills drop constraint if exists no_beginner_teaching;
+
 -- If `public.users` already exists, add the column in Supabase SQL Editor:
 -- alter table public.users add column if not exists password_hash text;
