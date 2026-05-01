@@ -26,7 +26,7 @@ export default function AuthLayout({ title, subtitle, children }) {
               </h1>
 
               <p className="mt-5 max-w-lg text-sm leading-6 text-slate-300 lg:text-base">
-                A clean and secure entry point for your skill-sharing platform. Students can sign in
+                A trusted skill-sharing platform built for UMass Amherst students. Students can sign in
                 and register using only their UMass email address.
               </p>
             </div>

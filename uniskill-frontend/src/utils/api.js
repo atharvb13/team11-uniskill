@@ -19,9 +19,18 @@ function errorMessageFromBody(json, fallback) {
   return fallback;
 }
 
-function attachStatus(err, status) {
+function attachStatus(err, status, details) {
   const e = err instanceof Error ? err : new Error(String(err));
   e.status = status;
+  if (details && typeof details === "object") {
+    e.data = details;
+    if (typeof details.field === "string") {
+      e.field = details.field;
+    }
+    if (typeof details.code === "string") {
+      e.code = details.code;
+    }
+  }
   return e;
 }
 
@@ -36,7 +45,7 @@ async function parseJsonResponse(response) {
     }
   }
   if (!response.ok) {
-    throw attachStatus(new Error(errorMessageFromBody(json, "Request failed.")), response.status);
+    throw attachStatus(new Error(errorMessageFromBody(json, "Request failed.")), response.status, json);
   }
   return json;
 }
@@ -113,6 +122,11 @@ export async function getMyProfile() {
  */
 export async function updateMyProfile(payload) {
   return authRequest("/api/profile/me", { method: "PATCH", body: payload });
+}
+
+/** @returns {Promise<object[]>} Other users with teach/learn skills */
+export async function discoverProfiles() {
+  return authRequest("/api/profile/discover", { method: "GET" });
 }
 
 /** @returns {Promise<object[]>} */

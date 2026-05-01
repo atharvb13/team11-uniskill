@@ -4,8 +4,8 @@ export default function PasswordStrength({ password }) {
   const checks = [
     password.length >= 8,
     /[A-Z]/.test(password),
+    /[a-z]/.test(password),
     /[0-9]/.test(password),
-    /[^A-Za-z0-9]/.test(password),
   ];
 
   const passed = checks.filter(Boolean).length;

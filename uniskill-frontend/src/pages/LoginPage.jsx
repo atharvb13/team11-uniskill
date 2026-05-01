@@ -5,7 +5,7 @@ import AuthLayout from "../components/AuthLayout";
 import FormField from "../components/FormField";
 import { loginUser } from "../utils/api";
 import { hasActiveSession, saveSession } from "../utils/session";
-import { validateLogin } from "../utils/validation";
+import { mapLoginServerError, validateLogin } from "../utils/validation";
 
 export default function LoginPage() {
   const navigate = useNavigate();
@@ -18,6 +18,7 @@ export default function LoginPage() {
   const [formData, setFormData] = useState({ identifier: "", password: "" });
   const [submitting, setSubmitting] = useState(false);
   const [serverMessage, setServerMessage] = useState("");
+  const [serverFieldErrors, setServerFieldErrors] = useState({});
   const [showFieldErrors, setShowFieldErrors] = useState(false);
 
   const errors = useMemo(
@@ -28,6 +29,7 @@ export default function LoginPage() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setServerMessage("");
+    setServerFieldErrors({});
 
     const validationErrors = validateLogin(formData);
     if (Object.keys(validationErrors).length > 0) {
@@ -44,11 +46,16 @@ export default function LoginPage() {
       saveSession(response.session ?? null);
       navigate("/dashboard", { replace: true });
     } catch (error) {
-      setServerMessage(error.message);
+      const message = error instanceof Error ? error.message : String(error);
+      const mapped = mapLoginServerError(message, error);
+      setServerFieldErrors(mapped.fieldErrors);
+      setServerMessage(mapped.generalError);
     } finally {
       setSubmitting(false);
     }
   };
+
+  const displayErrors = { ...errors, ...serverFieldErrors };
 
   return (
     <AuthLayout
@@ -62,8 +69,11 @@ export default function LoginPage() {
           placeholder="Email (yourname@umass.edu) or username"
           autoComplete="username"
           value={formData.identifier}
-          onChange={(e) => setFormData({ ...formData, identifier: e.target.value })}
-          error={errors.identifier}
+          onChange={(e) => {
+            setFormData({ ...formData, identifier: e.target.value });
+            setServerFieldErrors((prev) => ({ ...prev, identifier: "" }));
+          }}
+          error={displayErrors.identifier}
         />
 
         <FormField
@@ -72,8 +82,11 @@ export default function LoginPage() {
           placeholder="Enter your password"
           autoComplete="current-password"
           value={formData.password}
-          onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-          error={errors.password}
+          onChange={(e) => {
+            setFormData({ ...formData, password: e.target.value });
+            setServerFieldErrors((prev) => ({ ...prev, password: "" }));
+          }}
+          error={displayErrors.password}
         />
 
         <div className="flex items-center justify-between text-sm">
