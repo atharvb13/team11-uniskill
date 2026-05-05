@@ -16,6 +16,10 @@ _PROFILE_SELECT = (
 _PUBLIC_SELECT = (
     "username, first_name, last_name, bio, date_of_joining, profile_picture_url"
 )
+_DISCOVER_USER_SELECT = "id, username, first_name, last_name, bio"
+_DISCOVER_SKILL_SELECT = (
+    "user_id, can_teach, wants_to_learn, proficiency_level, skills(name, category)"
+)
 
 router = APIRouter()
 _bearer = HTTPBearer()
@@ -83,6 +87,67 @@ def update_profile(
         raise HTTPException(status_code=500, detail=str(e)) from e
 
     return {"message": "Profile updated successfully."}
+
+
+@router.get("/discover")
+def discover_profiles(user_id: str = Depends(get_current_user_id)) -> Any:
+    """List other users and their skills for dashboard discovery/search."""
+    try:
+        users = (
+            supabase_admin_client.table("users")
+            .select(_DISCOVER_USER_SELECT)
+            .neq("id", user_id)
+            .order("username")
+            .execute()
+            .data
+            or []
+        )
+        rows = (
+            supabase_admin_client.table("user_skills")
+            .select(_DISCOVER_SKILL_SELECT)
+            .neq("user_id", user_id)
+            .execute()
+            .data
+            or []
+        )
+    except APIError as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+    by_user: dict[str, dict[str, Any]] = {}
+    for u in users:
+        uid = str(u.get("id", ""))
+        if not uid:
+            continue
+        by_user[uid] = {
+            "id": uid,
+            "username": u.get("username"),
+            "first_name": u.get("first_name"),
+            "last_name": u.get("last_name"),
+            "bio": u.get("bio"),
+            "teach_skills": [],
+            "learn_skills": [],
+        }
+
+    for row in rows:
+        uid = str(row.get("user_id", ""))
+        target = by_user.get(uid)
+        if not target:
+            continue
+        s = row.get("skills")
+        skill = s[0] if isinstance(s, list) else s
+        if not isinstance(skill, dict):
+            continue
+        skill_payload = {
+            "name": skill.get("name"),
+            "category": skill.get("category"),
+            "proficiency_level": row.get("proficiency_level"),
+        }
+        if row.get("can_teach"):
+            target["teach_skills"].append(skill_payload)
+        if row.get("wants_to_learn"):
+            target["learn_skills"].append(skill_payload)
+
+    return list(by_user.values())
 
 
 @router.get("/{username}")
