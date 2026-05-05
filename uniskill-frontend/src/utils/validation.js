@@ -53,6 +53,8 @@ export function validateRegister(values) {
     errors.password = "Password is required";
   } else if (values.password.length < 8) {
     errors.password = "Password must be at least 8 characters";
+  } else if (!/[A-Z]/.test(values.password) || !/[a-z]/.test(values.password) || !/[0-9]/.test(values.password)) {
+    errors.password = "Password must include uppercase, lowercase, and a number";
   }
 
   if (!values.confirmPassword.trim()) {
@@ -62,4 +64,72 @@ export function validateRegister(values) {
   }
 
   return errors;
+}
+
+/**
+ * Map backend auth/register errors to field-level frontend errors when possible.
+ */
+export function mapRegisterServerError(message, meta = {}) {
+  const text = String(message || "");
+  const lower = text.toLowerCase();
+  const serverField = typeof meta?.field === "string" ? meta.field.toLowerCase() : "";
+
+  if (serverField === "firstname" || serverField === "first_name") {
+    return { fieldErrors: { firstName: text }, generalError: "" };
+  }
+  if (serverField === "lastname" || serverField === "last_name") {
+    return { fieldErrors: { lastName: text }, generalError: "" };
+  }
+  if (serverField === "username") {
+    return { fieldErrors: { username: text }, generalError: "" };
+  }
+  if (serverField === "email" || serverField === "contact_email") {
+    return { fieldErrors: { email: text }, generalError: "" };
+  }
+  if (serverField === "password") {
+    return { fieldErrors: { password: text }, generalError: "" };
+  }
+
+  if (lower.includes("first name")) {
+    return { fieldErrors: { firstName: text }, generalError: "" };
+  }
+  if (lower.includes("last name")) {
+    return { fieldErrors: { lastName: text }, generalError: "" };
+  }
+  if (lower.includes("username")) {
+    return { fieldErrors: { username: text }, generalError: "" };
+  }
+  if (lower.includes("email") || lower.includes("@umass.edu")) {
+    return { fieldErrors: { email: text }, generalError: "" };
+  }
+  if (lower.includes("password")) {
+    return { fieldErrors: { password: text }, generalError: "" };
+  }
+
+  return { fieldErrors: {}, generalError: text };
+}
+
+/**
+ * Map backend auth/login errors to field-level frontend errors when possible.
+ */
+export function mapLoginServerError(message, meta = {}) {
+  const text = String(message || "");
+  const lower = text.toLowerCase();
+  const serverField = typeof meta?.field === "string" ? meta.field.toLowerCase() : "";
+
+  if (serverField === "identifier" || serverField === "username" || serverField === "email") {
+    return { fieldErrors: { identifier: text }, generalError: "" };
+  }
+  if (serverField === "password") {
+    return { fieldErrors: { password: text }, generalError: "" };
+  }
+
+  if (lower.includes("email") || lower.includes("username") || lower.includes("identifier")) {
+    return { fieldErrors: { identifier: text }, generalError: "" };
+  }
+  if (lower.includes("password")) {
+    return { fieldErrors: { password: text }, generalError: "" };
+  }
+
+  return { fieldErrors: {}, generalError: text };
 }

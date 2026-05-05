@@ -5,7 +5,7 @@ import AuthLayout from "../components/AuthLayout";
 import FormField from "../components/FormField";
 import PasswordStrength from "../components/PasswordStrength";
 import { registerUser } from "../utils/api";
-import { validateRegister } from "../utils/validation";
+import { mapRegisterServerError, validateRegister } from "../utils/validation";
 
 export default function RegisterPage() {
   const navigate = useNavigate();
@@ -19,6 +19,8 @@ export default function RegisterPage() {
   });
   const [submitting, setSubmitting] = useState(false);
   const [serverMessage, setServerMessage] = useState("");
+  const [serverFieldErrors, setServerFieldErrors] = useState({});
+  const [nextStepMessage, setNextStepMessage] = useState("");
   const [registrationSuccess, setRegistrationSuccess] = useState(false);
   /** Inline errors only after first submit attempt — avoids all-red empty form on load. */
   const [showFieldErrors, setShowFieldErrors] = useState(false);
@@ -29,16 +31,18 @@ export default function RegisterPage() {
   );
 
   useEffect(() => {
-    if (!registrationSuccess) {
+    if (!registrationSuccess || nextStepMessage) {
       return undefined;
     }
     const timer = setTimeout(() => navigate("/login", { replace: true }), 2000);
     return () => clearTimeout(timer);
-  }, [registrationSuccess, navigate]);
+  }, [nextStepMessage, registrationSuccess, navigate]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setServerMessage("");
+    setServerFieldErrors({});
+    setNextStepMessage("");
     setRegistrationSuccess(false);
 
     const validationErrors = validateRegister(formData);
@@ -49,20 +53,26 @@ export default function RegisterPage() {
 
     try {
       setSubmitting(true);
-      await registerUser({
+      const response = await registerUser({
         firstName: formData.firstName,
         lastName: formData.lastName,
         username: formData.username,
         email: formData.email,
         password: formData.password,
       });
+      setNextStepMessage(typeof response?.nextStep === "string" ? response.nextStep : "");
       setRegistrationSuccess(true);
     } catch (error) {
-      setServerMessage(error.message);
+      const message = error instanceof Error ? error.message : String(error);
+      const mapped = mapRegisterServerError(message, error);
+      setServerFieldErrors(mapped.fieldErrors);
+      setServerMessage(mapped.generalError);
     } finally {
       setSubmitting(false);
     }
   };
+
+  const displayErrors = { ...errors, ...serverFieldErrors };
 
   return (
     <AuthLayout
@@ -74,8 +84,11 @@ export default function RegisterPage() {
           icon={User}
           placeholder="First name"
           value={formData.firstName}
-          onChange={(e) => setFormData({ ...formData, firstName: e.target.value })}
-          error={errors.firstName}
+          onChange={(e) => {
+            setFormData({ ...formData, firstName: e.target.value });
+            setServerFieldErrors((prev) => ({ ...prev, firstName: "" }));
+          }}
+          error={displayErrors.firstName}
           disabled={registrationSuccess}
         />
 
@@ -83,8 +96,11 @@ export default function RegisterPage() {
           icon={User}
           placeholder="Last name"
           value={formData.lastName}
-          onChange={(e) => setFormData({ ...formData, lastName: e.target.value })}
-          error={errors.lastName}
+          onChange={(e) => {
+            setFormData({ ...formData, lastName: e.target.value });
+            setServerFieldErrors((prev) => ({ ...prev, lastName: "" }));
+          }}
+          error={displayErrors.lastName}
           disabled={registrationSuccess}
         />
 
@@ -92,8 +108,11 @@ export default function RegisterPage() {
           icon={User}
           placeholder="Username"
           value={formData.username}
-          onChange={(e) => setFormData({ ...formData, username: e.target.value })}
-          error={errors.username}
+          onChange={(e) => {
+            setFormData({ ...formData, username: e.target.value });
+            setServerFieldErrors((prev) => ({ ...prev, username: "" }));
+          }}
+          error={displayErrors.username}
           disabled={registrationSuccess}
         />
 
@@ -103,8 +122,11 @@ export default function RegisterPage() {
           placeholder="yourname@umass.edu"
           autoComplete="email"
           value={formData.email}
-          onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-          error={errors.email}
+          onChange={(e) => {
+            setFormData({ ...formData, email: e.target.value });
+            setServerFieldErrors((prev) => ({ ...prev, email: "" }));
+          }}
+          error={displayErrors.email}
           disabled={registrationSuccess}
         />
 
@@ -114,8 +136,11 @@ export default function RegisterPage() {
           placeholder="Create password"
           autoComplete="new-password"
           value={formData.password}
-          onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-          error={errors.password}
+          onChange={(e) => {
+            setFormData({ ...formData, password: e.target.value });
+            setServerFieldErrors((prev) => ({ ...prev, password: "" }));
+          }}
+          error={displayErrors.password}
           disabled={registrationSuccess}
         />
         <PasswordStrength password={formData.password} />
@@ -127,7 +152,7 @@ export default function RegisterPage() {
           autoComplete="new-password"
           value={formData.confirmPassword}
           onChange={(e) => setFormData({ ...formData, confirmPassword: e.target.value })}
-          error={errors.confirmPassword}
+          error={displayErrors.confirmPassword}
           disabled={registrationSuccess}
         />
 
@@ -146,8 +171,11 @@ export default function RegisterPage() {
         {registrationSuccess ? (
           <p className="text-center text-sm font-medium text-emerald-600">Registration successful.</p>
         ) : null}
-        {registrationSuccess ? (
+        {registrationSuccess && !nextStepMessage ? (
           <p className="text-center text-xs text-slate-500">Redirecting to login…</p>
+        ) : null}
+        {registrationSuccess && nextStepMessage ? (
+          <p className="text-center text-xs text-slate-500">{nextStepMessage}</p>
         ) : null}
 
         {!registrationSuccess && serverMessage ? (
