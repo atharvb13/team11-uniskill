@@ -1,5 +1,6 @@
 from typing import Any, Literal
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from postgrest.exceptions import APIError
@@ -29,11 +30,30 @@ def get_current_user_id(credentials: HTTPAuthorizationCredentials = Depends(_bea
         return str(res.user.id)
     except AuthApiError:
         raise HTTPException(status_code=401, detail="Invalid or expired token.")
+    except httpx.HTTPError:
+        # Supabase auth transport hiccup; surface as temporary outage instead of 500 traceback.
+        raise HTTPException(status_code=503, detail="Auth service temporarily unavailable. Please retry.")
 
 
 def clean_skill_name(name: str) -> str:
     """Normalize a skill name: strip, collapse spaces, title-case each word."""
     return " ".join(word.capitalize() for word in name.strip().split())
+
+
+def _raise_api_error(e: APIError) -> None:
+    text = str(e)
+    lower = text.lower()
+    if "proficiency_level" in lower and (
+        "check constraint" in lower or "invalid input value for enum" in lower
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Your database currently rejects 'expert' proficiency_level. "
+                "Run the SQL in uniskill-backend/supabase-fix-proficiency-level.sql and retry."
+            ),
+        ) from e
+    raise HTTPException(status_code=500, detail=text) from e
 
 
 class AddUserSkillBody(BaseModel):
@@ -69,7 +89,7 @@ def list_skills() -> Any:
             or []
         )
     except APIError as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        _raise_api_error(e)
     return rows
 
 
@@ -147,7 +167,7 @@ def add_my_skill(
                 .data
             )
         except APIError as e:
-            raise HTTPException(status_code=500, detail=str(e))
+            _raise_api_error(e)
         skill_id = inserted[0]["id"]
         created_skill = True
 
@@ -187,7 +207,7 @@ def add_my_skill(
             .data
         )
     except APIError as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
+        _raise_api_error(e)
 
     return {
         "message": "Skill added.",
@@ -221,7 +241,7 @@ def update_my_skill(
             or []
         )
     except APIError as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
+        _raise_api_error(e)
 
     if not row_check:
         raise HTTPException(status_code=404, detail="User skill not found.")
@@ -268,7 +288,7 @@ def remove_my_skill(
             or []
         )
     except APIError as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        _raise_api_error(e)
 
     if not result:
         raise HTTPException(status_code=404, detail="User skill not found.")
