@@ -129,6 +129,26 @@ export async function discoverProfiles() {
   return authRequest("/api/profile/discover", { method: "GET" });
 }
 
+/** @returns {Promise<object[]>} Prioritized recommendations for dashboard home */
+export async function getRecommendations() {
+  const json = await authRequest("/api/profile/recommendations", { method: "GET" });
+  return Array.isArray(json?.recommendations) ? json.recommendations : [];
+}
+
+/** @returns {Promise<object[]>} Search users by name or skill */
+export async function searchProfiles(query, limit = 20) {
+  const q = String(query || "").trim();
+  if (!q) {
+    return [];
+  }
+  const params = new URLSearchParams({
+    query: q,
+    limit: String(limit),
+  });
+  const json = await authRequest(`/api/profile/search?${params.toString()}`, { method: "GET" });
+  return Array.isArray(json?.results) ? json.results : [];
+}
+
 /** @returns {Promise<object[]>} */
 export async function getMySkills() {
   return authRequest("/api/skills/me", { method: "GET" });
