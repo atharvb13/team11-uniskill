@@ -10,6 +10,15 @@ FastAPI backend for authentication endpoints backed by Supabase.
 - `POST /api/auth/login`
   - body: `{ "identifier": "jane@umass.edu", "password": "StrongPass1" }` or `{ "identifier": "janedoe", "password": "StrongPass1" }`
     - If `identifier` contains `@`, it is treated as a `@umass.edu` email; otherwise it is a username (looked up in `public.users` for `contact_email`).
+- `GET /api/profile/recommendations`
+  - auth required (Bearer token)
+  - returns prioritized user matches:
+    - `mutual_exchange`: they can teach what you want and you can teach what they want.
+    - `one_way_learning`: they can teach what you want, but no reciprocal skill match.
+- `GET /api/profile/search?query=<text>&limit=<n>`
+  - auth required (Bearer token)
+  - searches all users by name/username and skill name
+  - returns up to `limit` users with `teach_skills` and `learn_skills`
 
 ## Registration and email confirmation
 
@@ -47,6 +56,12 @@ If `public.users` already exists without `password_hash`, run in Supabase SQL Ed
 
 ```sql
 alter table public.users add column if not exists password_hash text;
+```
+
+If `expert` proficiency_level fails to save, run:
+
+```sql
+-- file: supabase-fix-proficiency-level.sql
 ```
 
 ## Setup

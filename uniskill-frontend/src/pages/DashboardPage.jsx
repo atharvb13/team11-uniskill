@@ -213,9 +213,9 @@ export default function DashboardPage() {
               exit={{ opacity: 0, y: -6 }}
               transition={{ duration: 0.2 }}
             >
-              {activeTab === "home" && <HomeTab />}
+              {activeTab === "home" && <HomeTab myId={profile?.id} />}
 
-              {activeTab === "chat" && <ChatTab />}
+              {activeTab === "chat" && <ChatTab myId={profile?.id} />}
 
               {activeTab === "profile" && (
                 <div className="space-y-8">

@@ -129,6 +129,26 @@ export async function discoverProfiles() {
   return authRequest("/api/profile/discover", { method: "GET" });
 }
 
+/** @returns {Promise<object[]>} Prioritized recommendations for dashboard home */
+export async function getRecommendations() {
+  const json = await authRequest("/api/profile/recommendations", { method: "GET" });
+  return Array.isArray(json?.recommendations) ? json.recommendations : [];
+}
+
+/** @returns {Promise<object[]>} Search users by name or skill */
+export async function searchProfiles(query, limit = 20) {
+  const q = String(query || "").trim();
+  if (!q) {
+    return [];
+  }
+  const params = new URLSearchParams({
+    query: q,
+    limit: String(limit),
+  });
+  const json = await authRequest(`/api/profile/search?${params.toString()}`, { method: "GET" });
+  return Array.isArray(json?.results) ? json.results : [];
+}
+
 /** @returns {Promise<object[]>} */
 export async function getMySkills() {
   return authRequest("/api/skills/me", { method: "GET" });
@@ -158,4 +178,56 @@ export async function updateMySkill(skillId, body) {
 export async function listCatalogSkills() {
   const response = await fetch(`${API_BASE_URL}/api/skills`);
   return parseJsonResponse(response);
+}
+
+// ─── Connections ──────────────────────────────────────────────────────────────
+
+/** Send a connection request to another user */
+export async function sendConnectionRequest(receiverId) {
+  return authRequest("/api/connections/request", { method: "POST", body: { receiver_id: receiverId } });
+}
+
+/** @returns {Promise<object[]>} accepted connections with user details */
+export async function getMyConnections() {
+  const json = await authRequest("/api/connections");
+  return Array.isArray(json?.connections) ? json.connections : [];
+}
+
+/** @returns {Promise<object[]>} pending requests received by me */
+export async function getPendingRequests() {
+  const json = await authRequest("/api/connections/pending");
+  return Array.isArray(json?.requests) ? json.requests : [];
+}
+
+/** @returns {Promise<object[]>} pending requests sent by me */
+export async function getSentRequests() {
+  const json = await authRequest("/api/connections/sent");
+  return Array.isArray(json?.sent_requests) ? json.sent_requests : [];
+}
+
+/** Accept a pending connection request */
+export async function acceptConnection(connectionId) {
+  return authRequest(`/api/connections/${encodeURIComponent(connectionId)}/accept`, { method: "POST" });
+}
+
+/** Reject a pending connection request */
+export async function rejectConnection(connectionId) {
+  return authRequest(`/api/connections/${encodeURIComponent(connectionId)}/reject`, { method: "POST" });
+}
+
+// ─── Messages ─────────────────────────────────────────────────────────────────
+
+/** @returns {Promise<object[]>} message history with another user */
+export async function getMessages(otherUserId) {
+  const json = await authRequest(`/api/messages/${encodeURIComponent(otherUserId)}`);
+  return Array.isArray(json?.messages) ? json.messages : [];
+}
+
+/** Send a message to a connected user */
+export async function sendMessage(otherUserId, content) {
+  const json = await authRequest(`/api/messages/${encodeURIComponent(otherUserId)}`, {
+    method: "POST",
+    body: { content },
+  });
+  return json?.message ?? null;
 }

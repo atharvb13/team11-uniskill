@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 load_dotenv()
 
 # Import after load_dotenv so supabase_clients sees env vars
-from app.routes import auth, profile, skills  # noqa: E402
+from app.routes import auth, connections, messages, profile, skills  # noqa: E402
 
 app = FastAPI(title="UniSkill API")
 
@@ -20,6 +20,8 @@ app.add_middleware(
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(profile.router, prefix="/api/profile", tags=["profile"])
 app.include_router(skills.router, prefix="/api/skills", tags=["skills"])
+app.include_router(connections.router, prefix="/api/connections", tags=["connections"])
+app.include_router(messages.router, prefix="/api/messages", tags=["messages"])
 
 
 @app.get("/health")
