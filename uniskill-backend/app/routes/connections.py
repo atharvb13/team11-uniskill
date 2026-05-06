@@ -1,29 +1,13 @@
 from typing import Any
 
-import httpx
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from postgrest.exceptions import APIError
 from pydantic import BaseModel
-from supabase_auth.errors import AuthApiError
 
-from app.supabase_clients import supabase_admin_client, supabase_auth_client
+from app.dependencies import get_current_user_id
+from app.supabase_clients import supabase_admin_client
 
 router = APIRouter()
-_bearer = HTTPBearer()
-
-
-def get_current_user_id(credentials: HTTPAuthorizationCredentials = Depends(_bearer)) -> str:
-    token = credentials.credentials
-    try:
-        res = supabase_auth_client.auth.get_user(token)
-        if not res.user or not res.user.id:
-            raise HTTPException(status_code=401, detail="Invalid token.")
-        return str(res.user.id)
-    except AuthApiError:
-        raise HTTPException(status_code=401, detail="Invalid or expired token.")
-    except httpx.HTTPError:
-        raise HTTPException(status_code=503, detail="Auth service temporarily unavailable. Please retry.")
 
 
 class ConnectionRequestBody(BaseModel):

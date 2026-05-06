@@ -5,7 +5,7 @@
  * Quality settings:
  *   CRF 26  — good quality (lower = better; 18 ≈ lossless, 28 = acceptable)
  *   720p max — keeps file size manageable while staying visually clear
- *   preset veryfast — fast encoding; slower presets shrink files more but take much longer
+ *   preset veryfast — fast enough for a browser
  *   AAC 128 kbps — standard audio quality
  */
 
@@ -14,7 +14,6 @@ import { fetchFile, toBlobURL } from "@ffmpeg/util";
 
 // Singleton — load once, reuse across calls
 let _ffmpeg = null;
-let _loading = false;
 let _loadPromise = null;
 
 const FFMPEG_CORE_VERSION = "0.12.4";
@@ -22,19 +21,28 @@ const BASE_URL = `https://unpkg.com/@ffmpeg/core@${FFMPEG_CORE_VERSION}/dist/umd
 
 async function getFFmpeg() {
   if (_ffmpeg) return _ffmpeg;
-  if (_loading) return _loadPromise;
 
-  _loading = true;
+  // Reuse in-flight load
+  if (_loadPromise) return _loadPromise;
+
   _loadPromise = (async () => {
     const ff = new FFmpeg();
-    await ff.load({
-      // Single-thread mode — no SharedArrayBuffer / COOP-COEP headers required
-      coreURL: await toBlobURL(`${BASE_URL}/ffmpeg-core.js`, "text/javascript"),
-      wasmURL: await toBlobURL(`${BASE_URL}/ffmpeg-core.wasm`, "application/wasm"),
-    });
-    _ffmpeg = ff;
-    _loading = false;
-    return ff;
+    try {
+      await ff.load({
+        // Single-thread mode — no SharedArrayBuffer / COOP-COEP headers required
+        coreURL: await toBlobURL(`${BASE_URL}/ffmpeg-core.js`, "text/javascript"),
+        wasmURL: await toBlobURL(`${BASE_URL}/ffmpeg-core.wasm`, "application/wasm"),
+      });
+      _ffmpeg = ff;
+      return ff;
+    } catch (err) {
+      // Reset so the next call retries the load instead of reusing the failed promise
+      _loadPromise = null;
+      throw new Error(
+        `Failed to load video compressor: ${err?.message || String(err)}. ` +
+        `Check your internet connection and try again.`
+      );
+    }
   })();
 
   return _loadPromise;
@@ -43,38 +51,34 @@ async function getFFmpeg() {
 /**
  * Compress a video File in the browser.
  *
- * @param {File} file              — the original video file
- * @param {(pct: number) => void} onProgress — called with 0–100 during encoding
- * @returns {Promise<File>}        — compressed MP4 File
+ * @param {File} file                         — the original video file
+ * @param {(pct: number) => void} onProgress  — called with 0–100 during encoding
+ * @returns {Promise<File>}                   — compressed MP4 File
  */
 export async function compressVideo(file, onProgress) {
   const ff = await getFFmpeg();
 
-  // Wire up progress events
   const progressHandler = ({ progress }) => {
-    const pct = Math.min(100, Math.round(progress * 100));
-    onProgress?.(pct);
+    onProgress?.(Math.min(100, Math.round(progress * 100)));
   };
   ff.on("progress", progressHandler);
 
-  const ext = file.name.split(".").pop().toLowerCase() || "mp4";
-  const inputName = `input.${ext}`;
-  const outputName = "output.mp4";
+  const ext = (file.name.split(".").pop() || "mp4").toLowerCase();
+  const inputName = `input_${Date.now()}.${ext}`;
+  const outputName = `output_${Date.now()}.mp4`;
 
   try {
-    // Write file into ffmpeg's virtual FS
     await ff.writeFile(inputName, await fetchFile(file));
 
-    // Compress:
-    //   -crf 26          → high quality (CRF 0=lossless … 51=worst; 24-28 is the sweet spot)
-    //   scale=-2:720     → max 720p height, maintain aspect ratio, width divisible by 2
-    //   preset veryfast  → fast enough for a browser; still achieves good compression
-    //   +faststart       → moov atom at front, starts playing before full download
-    await ff.exec([
+    // -crf 26          → good quality (0=lossless, 51=worst; sweet spot is 24–28)
+    // scale=-2:min(720,ih) → cap at 720p, never upscale, keep aspect ratio
+    // preset veryfast  → reasonable encoding speed in the browser
+    // +faststart       → moov atom at front so video plays before fully downloaded
+    const exitCode = await ff.exec([
       "-i", inputName,
       "-c:v", "libx264",
       "-crf", "26",
-      "-vf", "scale=-2:'min(720,ih)'",   // never upscale, cap at 720p
+      "-vf", "scale=-2:min(720\\,ih)",
       "-c:a", "aac",
       "-b:a", "128k",
       "-preset", "veryfast",
@@ -82,19 +86,22 @@ export async function compressVideo(file, onProgress) {
       outputName,
     ]);
 
-    const data = await ff.readFile(outputName);
+    // In @ffmpeg/ffmpeg v0.12 exec() returns the exit code — non-zero means failure
+    if (exitCode !== 0) {
+      throw new Error(
+        `Video compression failed (code ${exitCode}). ` +
+        `The format may be unsupported — try converting to MP4 first.`
+      );
+    }
 
-    // Build a new File from the compressed bytes
+    const data = await ff.readFile(outputName);
     const baseName = file.name.replace(/\.[^.]+$/, "");
-    const compressed = new File(
+    return new File(
       [data.buffer],
       `${baseName}_compressed.mp4`,
       { type: "video/mp4" }
     );
-
-    return compressed;
   } finally {
-    // Clean up virtual FS and listeners
     ff.off("progress", progressHandler);
     try { await ff.deleteFile(inputName); } catch { /* ignore */ }
     try { await ff.deleteFile(outputName); } catch { /* ignore */ }

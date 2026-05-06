@@ -1,15 +1,13 @@
 from collections import defaultdict
 from typing import Any
 
-import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from postgrest.exceptions import APIError
 from pydantic import BaseModel
-from supabase_auth.errors import AuthApiError
 
-from app.supabase_clients import supabase_admin_client, supabase_auth_client
+from app.dependencies import get_current_user_id
+from app.supabase_clients import supabase_admin_client
 
 _PROFILE_SELECT = (
     "id, username, first_name, last_name, contact_email, bio, "
@@ -34,7 +32,6 @@ _PROFICIENCY_RANK = {
 _RANK_TO_LEVEL = {v: k for k, v in _PROFICIENCY_RANK.items()}
 
 router = APIRouter()
-_bearer = HTTPBearer()
 
 
 class UpdateProfileBody(BaseModel):
@@ -42,20 +39,6 @@ class UpdateProfileBody(BaseModel):
     last_name: str | None = None
     bio: str | None = None
     profile_picture_url: str | None = None
-
-
-def get_current_user_id(credentials: HTTPAuthorizationCredentials = Depends(_bearer)) -> str:
-    token = credentials.credentials
-    try:
-        res = supabase_auth_client.auth.get_user(token)
-        if not res.user or not res.user.id:
-            raise HTTPException(status_code=401, detail="Invalid token.")
-        return str(res.user.id)
-    except AuthApiError:
-        raise HTTPException(status_code=401, detail="Invalid or expired token.")
-    except httpx.HTTPError:
-        # Supabase auth transport hiccup; surface as temporary outage instead of 500 traceback.
-        raise HTTPException(status_code=503, detail="Auth service temporarily unavailable. Please retry.")
 
 
 def _proficiency_rank(value: str | None) -> int:

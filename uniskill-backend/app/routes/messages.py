@@ -1,35 +1,19 @@
 from datetime import datetime, timezone
 from typing import Any
 
-import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from postgrest.exceptions import APIError
 from pydantic import BaseModel
-from supabase_auth.errors import AuthApiError
 
-from app.supabase_clients import supabase_admin_client, supabase_auth_client
+from app.dependencies import get_current_user_id
+from app.supabase_clients import supabase_admin_client
 
 router = APIRouter()
-_bearer = HTTPBearer()
 
 _MSG_SELECT = (
     "id, sender_id, receiver_id, content, created_at, read_at, "
     "attachment_url, attachment_type, attachment_name, attachment_size"
 )
-
-
-def get_current_user_id(credentials: HTTPAuthorizationCredentials = Depends(_bearer)) -> str:
-    token = credentials.credentials
-    try:
-        res = supabase_auth_client.auth.get_user(token)
-        if not res.user or not res.user.id:
-            raise HTTPException(status_code=401, detail="Invalid token.")
-        return str(res.user.id)
-    except AuthApiError:
-        raise HTTPException(status_code=401, detail="Invalid or expired token.")
-    except httpx.HTTPError:
-        raise HTTPException(status_code=503, detail="Auth service temporarily unavailable. Please retry.")
 
 
 def _verify_connected(user_id: str, other_user_id: str) -> None:

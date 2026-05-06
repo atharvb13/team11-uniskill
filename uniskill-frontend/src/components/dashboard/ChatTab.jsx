@@ -7,12 +7,10 @@ import {
   MessageSquare,
   Paperclip,
   Send,
-  Video,
   X,
 } from "lucide-react";
 import { supabase } from "../../lib/supabaseClient";
 import { getAccessToken, getRefreshToken } from "../../utils/session";
-import { compressVideo, isVideoFile } from "../../utils/videoCompressor";
 import {
   acceptConnection,
   getMessages,
@@ -25,6 +23,14 @@ import {
 } from "../../utils/api";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
+
+function toErrorMessage(e, fallback = "Something went wrong.") {
+  if (e instanceof Error) return e.message;
+  if (typeof e === "string" && e.trim()) return e;
+  if (e?.message) return String(e.message);
+  if (e?.error) return String(e.error);
+  return fallback;
+}
 
 function userInitials(user) {
   const fn = user?.first_name?.trim()?.[0];
@@ -97,14 +103,14 @@ function MessageBubble({ msg, isMe }) {
   const hasAttachment = !!attachment_url;
 
   const timeStamp = (
-    <p className={`pb-2 pr-3 text-right text-[10px] ${isMe ? "text-emerald-200/60" : "text-slate-500"}`}>
+    <p className={`pb-0.5 pr-3 text-right text-[10px] ${isMe ? "text-emerald-200/60" : "text-slate-500"}`}>
       {formatTime(created_at)}
     </p>
   );
 
   return (
     <div className={`flex ${isMe ? "justify-end" : "justify-start"}`}>
-      <div className={`max-w-[70%] rounded-2xl text-sm overflow-hidden ${
+      <div className={`w-fit max-w-[70%] rounded-2xl text-sm overflow-hidden ${
         isMe ? "rounded-br-sm bg-emerald-600/75 text-white" : "rounded-bl-sm bg-white/10 text-slate-100"
       }`}>
 
@@ -151,34 +157,12 @@ function MessageBubble({ msg, isMe }) {
 
         {/* Text */}
         {content ? (
-          <div className="px-4 py-2.5">
+          <div className="px-4 pt-2.5 pb-1">
             <p className="break-words leading-relaxed">{content}</p>
           </div>
         ) : null}
 
         {timeStamp}
-      </div>
-    </div>
-  );
-}
-
-// ─── Compression progress bar ─────────────────────────────────────────────────
-
-function CompressionProgress({ progress }) {
-  return (
-    <div className="mx-4 mb-2 rounded-2xl border border-emerald-400/20 bg-emerald-500/10 px-4 py-3">
-      <div className="mb-1.5 flex items-center justify-between">
-        <span className="flex items-center gap-1.5 text-xs font-medium text-emerald-300">
-          <Video className="h-3.5 w-3.5" />
-          Compressing video…
-        </span>
-        <span className="text-xs text-emerald-400">{progress}%</span>
-      </div>
-      <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/10">
-        <div
-          className="h-full rounded-full bg-emerald-400 transition-all duration-200"
-          style={{ width: `${progress}%` }}
-        />
       </div>
     </div>
   );
@@ -201,7 +185,6 @@ export default function ChatTab({ myId }) {
   const [loading, setLoading] = useState(true);
   const [msgLoading, setMsgLoading] = useState(false);
   const [sending, setSending] = useState(false);
-  const [compressionProgress, setCompressionProgress] = useState(null); // null | 0-100
   const [uploadProgress, setUploadProgress] = useState(false);
   const [error, setError] = useState("");
 
@@ -239,7 +222,7 @@ export default function ChatTab({ myId }) {
       for (const p of previewsData) map[p.other_user_id] = p;
       setPreviews(map);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load.");
+      setError(toErrorMessage(e, "Failed to load connections."));
     } finally {
       setLoading(false);
     }
@@ -315,7 +298,7 @@ export default function ChatTab({ myId }) {
       ]);
       setMessages(msgs);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load messages.");
+      setError(toErrorMessage(e, "Failed to load messages."));
     } finally {
       setMsgLoading(false);
     }
@@ -407,16 +390,7 @@ export default function ChatTab({ myId }) {
       let attachment = null;
 
       if (fileToSend) {
-        let fileToUpload = fileToSend.file;
-
-        // Compress video before uploading
-        if (fileToSend.type === "video") {
-          setCompressionProgress(0);
-          fileToUpload = await compressVideo(fileToSend.file, (pct) => {
-            setCompressionProgress(pct);
-          });
-          setCompressionProgress(null);
-        }
+        const fileToUpload = fileToSend.file;
 
         setUploadProgress(true);
         const url = await uploadFile(fileToUpload, fileToSend.type);
@@ -438,10 +412,9 @@ export default function ChatTab({ myId }) {
       const saved = await sendMessage(selectedUser.id, content, attachment);
       setMessages((prev) => prev.map((m) => (m.id === tempId ? saved ?? m : m)));
     } catch (e) {
-      setCompressionProgress(null);
       setUploadProgress(false);
       setMessages((prev) => prev.filter((m) => m.id !== tempId));
-      setError(e instanceof Error ? e.message : "Failed to send.");
+      setError(toErrorMessage(e, "Failed to send. Please try again."));
     } finally {
       setSending(false);
       if (fileToSend?.previewUrl) URL.revokeObjectURL(fileToSend.previewUrl);
@@ -463,7 +436,7 @@ export default function ChatTab({ myId }) {
   }, [loadAll]);
 
   const isEmpty = connections.length === 0 && pendingRequests.length === 0;
-  const isBusy = compressionProgress !== null || uploadProgress;
+  const isBusy = uploadProgress;
 
   // ─────────────────────────────────────────────────────────────────────────────
   return (
@@ -611,13 +584,8 @@ export default function ChatTab({ myId }) {
               </p>
             )}
 
-            {/* Compression progress */}
-            {compressionProgress !== null && (
-              <CompressionProgress progress={compressionProgress} />
-            )}
-
             {/* Upload progress */}
-            {uploadProgress && compressionProgress === null && (
+            {uploadProgress && (
               <div className="mx-4 mb-2 flex items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-2.5 text-xs text-slate-300">
                 <Loader2 className="h-3.5 w-3.5 animate-spin text-emerald-400" />
                 Uploading…
@@ -644,11 +612,6 @@ export default function ChatTab({ myId }) {
                   <p className="truncate text-sm font-medium text-white">{pendingFile.file.name}</p>
                   <p className="text-xs text-slate-400">
                     {formatBytes(pendingFile.file.size)}
-                    {pendingFile.type === "video" && (
-                      <span className="ml-1.5 rounded-full border border-emerald-400/25 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] text-emerald-300">
-                        Will be compressed
-                      </span>
-                    )}
                   </p>
                 </div>
                 <button onClick={removePendingFile}
