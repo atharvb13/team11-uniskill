@@ -11,7 +11,7 @@ import {
   X,
 } from "lucide-react";
 import { supabase } from "../../lib/supabaseClient";
-import { getAccessToken } from "../../utils/session";
+import { getAccessToken, getRefreshToken } from "../../utils/session";
 import { compressVideo, isVideoFile } from "../../utils/videoCompressor";
 import {
   acceptConnection,
@@ -341,6 +341,17 @@ export default function ChatTab({ myId }) {
   // Upload to Supabase Storage
   async function uploadFile(file, type) {
     if (!supabase) throw new Error("Supabase client not available.");
+
+    // Ensure the Supabase client is authenticated with the user's real session
+    const accessToken = getAccessToken();
+    const refreshToken = getRefreshToken();
+    if (accessToken) {
+      await supabase.auth.setSession({
+        access_token: accessToken,
+        refresh_token: refreshToken || "",
+      });
+    }
+
     const ext = file.name.split(".").pop();
     const folder = type === "image" ? "images" : type === "video" ? "videos" : "files";
     const path = `${myId}/${folder}/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
