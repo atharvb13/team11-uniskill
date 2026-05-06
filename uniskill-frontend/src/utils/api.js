@@ -223,11 +223,34 @@ export async function getMessages(otherUserId) {
   return Array.isArray(json?.messages) ? json.messages : [];
 }
 
-/** Send a message to a connected user */
-export async function sendMessage(otherUserId, content) {
+/**
+ * Send a message (with optional attachment) to a connected user.
+ * @param {string} otherUserId
+ * @param {string} content
+ * @param {{ url: string, type: string, name: string, size: number }|null} attachment
+ */
+export async function sendMessage(otherUserId, content, attachment = null) {
+  const body = { content };
+  if (attachment) {
+    body.attachment_url  = attachment.url;
+    body.attachment_type = attachment.type;   // 'image' | 'file'
+    body.attachment_name = attachment.name;
+    body.attachment_size = attachment.size;
+  }
   const json = await authRequest(`/api/messages/${encodeURIComponent(otherUserId)}`, {
     method: "POST",
-    body: { content },
+    body,
   });
   return json?.message ?? null;
+}
+
+/** @returns {Promise<object[]>} last message + unread count per conversation */
+export async function getMessagePreviews() {
+  const json = await authRequest("/api/messages/previews");
+  return Array.isArray(json?.previews) ? json.previews : [];
+}
+
+/** Mark all messages from otherUserId to me as read */
+export async function markMessagesRead(otherUserId) {
+  return authRequest(`/api/messages/${encodeURIComponent(otherUserId)}/read`, { method: "PATCH" });
 }
