@@ -6,7 +6,7 @@ import DashboardBody from "../components/dashboard/DashboardBody";
 import HomeTab from "../components/dashboard/HomeTab";
 import ChatTab from "../components/dashboard/ChatTab";
 import ProfileOnboardingModal from "../components/ProfileOnboardingModal";
-import { getMyProfile, getMySkills, removeMySkill } from "../utils/api";
+import { getMyProfile, getMySkills, getPendingRequests, removeMySkill } from "../utils/api";
 import { clearSession } from "../utils/session";
 import { clearLocalOnboarding } from "../utils/onboardingLocal";
 
@@ -30,6 +30,7 @@ export default function DashboardPage() {
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [resetting, setResetting] = useState(false);
   const [activeTab, setActiveTab] = useState("home");
+  const [pendingCount, setPendingCount] = useState(0);
 
   const loadDashboard = useCallback(async () => {
     setLoading(true);
@@ -56,6 +57,27 @@ export default function DashboardPage() {
   useEffect(() => {
     void loadDashboard();
   }, [loadDashboard]);
+
+  // Poll for pending connection requests every 30s to keep badge fresh
+  useEffect(() => {
+    async function fetchPending() {
+      try {
+        const reqs = await getPendingRequests();
+        setPendingCount(reqs.length);
+      } catch {
+        // silently ignore — badge is non-critical
+      }
+    }
+    void fetchPending();
+    const interval = setInterval(fetchPending, 30_000);
+    return () => clearInterval(interval);
+  }, []);
+
+  function handleTabChange(id) {
+    setActiveTab(id);
+    // Clear badge when user opens Chat tab
+    if (id === "chat") setPendingCount(0);
+  }
 
   const handleOnboardingComplete = useCallback(() => {
     setShowOnboarding(false);
@@ -145,24 +167,32 @@ export default function DashboardPage() {
           <nav className="flex items-center gap-8" aria-label="Dashboard navigation">
             {TABS.map(({ id, label, icon: Icon }) => {
               const isActive = activeTab === id;
+              const showBadge = id === "chat" && pendingCount > 0 && !isActive;
               return (
                 <button
                   key={id}
                   type="button"
-                  onClick={() => setActiveTab(id)}
+                  onClick={() => handleTabChange(id)}
                   aria-current={isActive ? "page" : undefined}
-                  className={`flex items-center gap-1.5 text-[13px] font-medium transition-colors duration-150 ${
+                  className={`relative flex items-center gap-1.5 text-[13px] font-medium transition-colors duration-150 ${
                     isActive
                       ? "text-white"
                       : "text-slate-400 hover:text-white"
                   }`}
                 >
-                  <Icon
-                    className={`h-[14px] w-[14px] transition-colors duration-150 ${
-                      isActive ? "text-emerald-400" : "text-slate-500"
-                    }`}
-                    strokeWidth={2.2}
-                  />
+                  <span className="relative">
+                    <Icon
+                      className={`h-[14px] w-[14px] transition-colors duration-150 ${
+                        isActive ? "text-emerald-400" : "text-slate-500"
+                      }`}
+                      strokeWidth={2.2}
+                    />
+                    {showBadge && (
+                      <span className="absolute -right-1.5 -top-1.5 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-red-500 text-[9px] font-bold text-white">
+                        {pendingCount > 9 ? "9+" : pendingCount}
+                      </span>
+                    )}
+                  </span>
                   {label}
                   {isActive && (
                     <motion.span
