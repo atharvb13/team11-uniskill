@@ -1,5 +1,6 @@
 from typing import Any, Literal
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from postgrest.exceptions import APIError
 from pydantic import BaseModel
