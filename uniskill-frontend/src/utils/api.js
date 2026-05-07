@@ -179,3 +179,78 @@ export async function listCatalogSkills() {
   const response = await fetch(`${API_BASE_URL}/api/skills`);
   return parseJsonResponse(response);
 }
+
+// ─── Connections ──────────────────────────────────────────────────────────────
+
+/** Send a connection request to another user */
+export async function sendConnectionRequest(receiverId) {
+  return authRequest("/api/connections/request", { method: "POST", body: { receiver_id: receiverId } });
+}
+
+/** @returns {Promise<object[]>} accepted connections with user details */
+export async function getMyConnections() {
+  const json = await authRequest("/api/connections");
+  return Array.isArray(json?.connections) ? json.connections : [];
+}
+
+/** @returns {Promise<object[]>} pending requests received by me */
+export async function getPendingRequests() {
+  const json = await authRequest("/api/connections/pending");
+  return Array.isArray(json?.requests) ? json.requests : [];
+}
+
+/** @returns {Promise<object[]>} pending requests sent by me */
+export async function getSentRequests() {
+  const json = await authRequest("/api/connections/sent");
+  return Array.isArray(json?.sent_requests) ? json.sent_requests : [];
+}
+
+/** Accept a pending connection request */
+export async function acceptConnection(connectionId) {
+  return authRequest(`/api/connections/${encodeURIComponent(connectionId)}/accept`, { method: "POST" });
+}
+
+/** Reject a pending connection request */
+export async function rejectConnection(connectionId) {
+  return authRequest(`/api/connections/${encodeURIComponent(connectionId)}/reject`, { method: "POST" });
+}
+
+// ─── Messages ─────────────────────────────────────────────────────────────────
+
+/** @returns {Promise<object[]>} message history with another user */
+export async function getMessages(otherUserId) {
+  const json = await authRequest(`/api/messages/${encodeURIComponent(otherUserId)}`);
+  return Array.isArray(json?.messages) ? json.messages : [];
+}
+
+/**
+ * Send a message (with optional attachment) to a connected user.
+ * @param {string} otherUserId
+ * @param {string} content
+ * @param {{ url: string, type: string, name: string, size: number }|null} attachment
+ */
+export async function sendMessage(otherUserId, content, attachment = null) {
+  const body = { content };
+  if (attachment) {
+    body.attachment_url  = attachment.url;
+    body.attachment_type = attachment.type;   // 'image' | 'file'
+    body.attachment_name = attachment.name;
+    body.attachment_size = attachment.size;
+  }
+  const json = await authRequest(`/api/messages/${encodeURIComponent(otherUserId)}`, {
+    method: "POST",
+    body,
+  });
+  return json?.message ?? null;
+}
+
+/** @returns {Promise<object[]>} last message + unread count per conversation */
+export async function getMessagePreviews() {
+  const json = await authRequest("/api/messages/previews");
+  return Array.isArray(json?.previews) ? json.previews : [];
+}
+
+/** Mark all messages from otherUserId to me as read */
+export async function markMessagesRead(otherUserId) {
+  return authRequest(`/api/messages/${encodeURIComponent(otherUserId)}/read`, { method: "PATCH" });
+}

@@ -1,15 +1,20 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
-import { GraduationCap, Loader2, Search, Target } from "lucide-react";
-import { getRecommendations, searchProfiles } from "../../utils/api";
+import { CheckCircle2, Clock, GraduationCap, Loader2, Search, Target, UserPlus } from "lucide-react";
+import {
+  getRecommendations,
+  getMyConnections,
+  getSentRequests,
+  getPendingRequests,
+  searchProfiles,
+  sendConnectionRequest,
+} from "../../utils/api";
 
 function fullName(rec) {
   const user = rec?.user;
   const fn = user?.first_name?.trim();
   const ln = user?.last_name?.trim();
-  if (fn && ln) {
-    return `${fn} ${ln}`;
-  }
+  if (fn && ln) return `${fn} ${ln}`;
   return fn || user?.username || "Unnamed user";
 }
 
@@ -26,7 +31,70 @@ function tierMeta(tier) {
   };
 }
 
-export default function HomeTab() {
+// Returns the connection status for a given user ID
+function getConnectionStatus(userId, connectedIds, sentIds, receivedIds) {
+  if (connectedIds.has(userId)) return "connected";
+  if (sentIds.has(userId)) return "pending_sent";
+  if (receivedIds.has(userId)) return "pending_received";
+  return "none";
+}
+
+function ConnectButton({ userId, status, onConnect }) {
+  const [loading, setLoading] = useState(false);
+
+  if (status === "connected") {
+    return (
+      <div className="inline-flex items-center gap-1.5 rounded-full border border-emerald-400/25 bg-emerald-500/10 px-3 py-1.5 text-xs font-medium text-emerald-300">
+        <CheckCircle2 className="h-3.5 w-3.5" />
+        Connected
+      </div>
+    );
+  }
+
+  if (status === "pending_sent") {
+    return (
+      <div className="inline-flex items-center gap-1.5 rounded-full border border-slate-400/20 bg-slate-500/10 px-3 py-1.5 text-xs font-medium text-slate-400">
+        <Clock className="h-3.5 w-3.5" />
+        Pending
+      </div>
+    );
+  }
+
+  if (status === "pending_received") {
+    return (
+      <div className="inline-flex items-center gap-1.5 rounded-full border border-amber-400/25 bg-amber-500/10 px-3 py-1.5 text-xs font-medium text-amber-300">
+        <Clock className="h-3.5 w-3.5" />
+        Respond in Chat
+      </div>
+    );
+  }
+
+  async function handleClick() {
+    setLoading(true);
+    try {
+      await onConnect(userId);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <button
+      onClick={handleClick}
+      disabled={loading}
+      className="inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-white/10 px-3 py-1.5 text-xs font-medium text-slate-200 transition hover:bg-white/20 hover:text-white disabled:opacity-60"
+    >
+      {loading ? (
+        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+      ) : (
+        <UserPlus className="h-3.5 w-3.5" />
+      )}
+      Connect
+    </button>
+  );
+}
+
+export default function HomeTab({ myId }) {
   const [query, setQuery] = useState("");
   const [recommendations, setRecommendations] = useState([]);
   const [searchResults, setSearchResults] = useState([]);
@@ -34,32 +102,43 @@ export default function HomeTab() {
   const [searchLoading, setSearchLoading] = useState(false);
   const [error, setError] = useState("");
 
+  // Connection state maps
+  const [connectedIds, setConnectedIds] = useState(new Set());
+  const [sentIds, setSentIds] = useState(new Set());
+  const [receivedIds, setReceivedIds] = useState(new Set());
+
+  // Load recommendations and connection state together
   useEffect(() => {
     let cancelled = false;
-    async function loadRecommendations() {
+    async function load() {
       setLoading(true);
       setError("");
       try {
-        const rows = await getRecommendations();
+        const [recsData, connsData, sentData, receivedData] = await Promise.all([
+          getRecommendations(),
+          getMyConnections(),
+          getSentRequests(),
+          getPendingRequests(),
+        ]);
         if (!cancelled) {
-          setRecommendations(Array.isArray(rows) ? rows : []);
+          setRecommendations(Array.isArray(recsData) ? recsData : []);
+          setConnectedIds(new Set(connsData.map((c) => c.user?.id).filter(Boolean)));
+          setSentIds(new Set(sentData.map((r) => r.receiver_id).filter(Boolean)));
+          setReceivedIds(new Set(receivedData.map((r) => r.user?.id).filter(Boolean)));
         }
       } catch (e) {
         if (!cancelled) {
           setError(e instanceof Error ? e.message : "Could not load recommendations.");
         }
       } finally {
-        if (!cancelled) {
-          setLoading(false);
-        }
+        if (!cancelled) setLoading(false);
       }
     }
-    void loadRecommendations();
-    return () => {
-      cancelled = true;
-    };
+    void load();
+    return () => { cancelled = true; };
   }, []);
 
+  // Debounced search
   const trimmedQuery = query.trim();
   const isSearching = trimmedQuery.length >= 2;
 
@@ -83,9 +162,7 @@ export default function HomeTab() {
           setError(e instanceof Error ? e.message : "Could not search users.");
         }
       } finally {
-        if (!cancelled) {
-          setSearchLoading(false);
-        }
+        if (!cancelled) setSearchLoading(false);
       }
     }, 300);
 
@@ -94,6 +171,17 @@ export default function HomeTab() {
       window.clearTimeout(timer);
     };
   }, [isSearching, trimmedQuery]);
+
+  async function handleConnect(userId) {
+    try {
+      await sendConnectionRequest(userId);
+      setSentIds((prev) => new Set([...prev, userId]));
+    } catch (e) {
+      // Show brief error (conflict = already sent/connected)
+      setError(e instanceof Error ? e.message : "Could not send request.");
+      setTimeout(() => setError(""), 4000);
+    }
+  }
 
   const activeCount = isSearching ? searchResults.length : recommendations.length;
 
@@ -152,15 +240,29 @@ export default function HomeTab() {
               {searchResults.map((user) => {
                 const teach = Array.isArray(user?.teach_skills) ? user.teach_skills : [];
                 const learn = Array.isArray(user?.learn_skills) ? user.learn_skills : [];
+                const status = getConnectionStatus(user.id, connectedIds, sentIds, receivedIds);
                 return (
                   <li
                     key={user.id || user.username}
                     className="rounded-3xl border border-white/10 bg-white/[0.05] p-5 text-slate-100 shadow-lg shadow-black/10"
                   >
-                    <p className="text-lg font-semibold">
-                      {`${user?.first_name?.trim() || ""} ${user?.last_name?.trim() || ""}`.trim() || user?.username || "Unnamed user"}
-                    </p>
-                    <p className="text-xs text-slate-400">@{user?.username || "unknown"}</p>
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-lg font-semibold">
+                          {`${user?.first_name?.trim() || ""} ${user?.last_name?.trim() || ""}`.trim() ||
+                            user?.username ||
+                            "Unnamed user"}
+                        </p>
+                        <p className="text-xs text-slate-400">@{user?.username || "unknown"}</p>
+                      </div>
+                      {user.id !== myId && (
+                        <ConnectButton
+                          userId={user.id}
+                          status={status}
+                          onConnect={handleConnect}
+                        />
+                      )}
+                    </div>
                     {user?.bio ? <p className="mt-3 text-sm text-slate-300">{user.bio}</p> : null}
 
                     <div className="mt-4 space-y-3">
@@ -215,20 +317,34 @@ export default function HomeTab() {
               {recommendations.map((rec) => {
                 const user = rec?.user || {};
                 const teachMatches = Array.isArray(rec?.teach_matches) ? rec.teach_matches : [];
-                const reciprocalMatches = Array.isArray(rec?.reciprocal_matches) ? rec.reciprocal_matches : [];
+                const reciprocalMatches = Array.isArray(rec?.reciprocal_matches)
+                  ? rec.reciprocal_matches
+                  : [];
                 const meta = tierMeta(rec?.recommendation_tier);
+                const status = getConnectionStatus(user.id, connectedIds, sentIds, receivedIds);
                 return (
                   <li
                     key={user.id || `${user.username || "user"}-${rec.recommendation_tier}`}
                     className="rounded-3xl border border-white/10 bg-white/[0.05] p-5 text-slate-100 shadow-lg shadow-black/10"
                   >
-                    <div
-                      className={`mb-2 inline-flex rounded-full border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide ${meta.className}`}
-                    >
-                      {meta.label}
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div
+                          className={`mb-2 inline-flex rounded-full border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide ${meta.className}`}
+                        >
+                          {meta.label}
+                        </div>
+                        <p className="text-lg font-semibold">{fullName(rec)}</p>
+                        <p className="text-xs text-slate-400">@{user.username || "unknown"}</p>
+                      </div>
+                      {user.id && user.id !== myId && (
+                        <ConnectButton
+                          userId={user.id}
+                          status={status}
+                          onConnect={handleConnect}
+                        />
+                      )}
                     </div>
-                    <p className="text-lg font-semibold">{fullName(rec)}</p>
-                    <p className="text-xs text-slate-400">@{user.username || "unknown"}</p>
                     {user.bio ? <p className="mt-3 text-sm text-slate-300">{user.bio}</p> : null}
 
                     <div className="mt-4 space-y-3">
