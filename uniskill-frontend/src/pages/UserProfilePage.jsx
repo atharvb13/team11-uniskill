@@ -10,10 +10,12 @@ import {
   Linkedin,
   Loader2,
   Sparkles,
+  Star,
   Target,
   UserX,
 } from "lucide-react";
-import { getPublicProfile } from "../utils/api";
+import { getMyProfile, getPublicProfile, upsertTeachingReview } from "../utils/api";
+import { hasActiveSession } from "../utils/session";
 
 const fadeUp = {
   initial: { opacity: 0, y: 14 },
@@ -22,6 +24,42 @@ const fadeUp = {
 
 const cardShell =
   "relative overflow-hidden rounded-[28px] border border-white/30 bg-white/[0.96] shadow-[0_25px_60px_-15px_rgba(15,23,42,0.28)] backdrop-blur-xl";
+
+function StarRating({ value, label, size = "md" }) {
+  const n = Math.round(Number(value) || 0);
+  const iconClass = size === "sm" ? "h-3.5 w-3.5" : "h-[1.15rem] w-[1.15rem]";
+  return (
+    <span className="inline-flex items-center gap-1" title={label}>
+      <span className="inline-flex items-center gap-0.5 text-amber-400" aria-hidden>
+        {[1, 2, 3, 4, 5].map((i) => (
+          <Star
+            key={i}
+            className={`${iconClass} ${i <= n ? "fill-amber-400 text-amber-400" : "text-slate-300"}`}
+            strokeWidth={i <= n ? 0 : 1.4}
+          />
+        ))}
+      </span>
+      {label ? (
+        <span className="sr-only">{label}</span>
+      ) : null}
+    </span>
+  );
+}
+
+function reviewerLabel(r) {
+  const fn = r?.first_name?.trim();
+  const ln = r?.last_name?.trim();
+  if (fn && ln) {
+    return `${fn} ${ln}`;
+  }
+  if (fn) {
+    return fn;
+  }
+  if (r?.username) {
+    return `@${r.username}`;
+  }
+  return "Member";
+}
 
 function proficiencyBadgeClass(level) {
   switch (level) {
@@ -44,6 +82,13 @@ export default function UserProfilePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [notFound, setNotFound] = useState(false);
+  const [me, setMe] = useState(null);
+
+  const [reviewRating, setReviewRating] = useState(5);
+  const [reviewBody, setReviewBody] = useState("");
+  const [reviewSaving, setReviewSaving] = useState(false);
+  const [reviewError, setReviewError] = useState("");
+  const [reviewSuccess, setReviewSuccess] = useState("");
 
   useEffect(() => {
     if (!username) return;
@@ -72,6 +117,36 @@ export default function UserProfilePage() {
     return () => { cancelled = true; };
   }, [username]);
 
+  useEffect(() => {
+    if (!hasActiveSession()) {
+      setMe(null);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const row = await getMyProfile();
+        if (!cancelled) setMe(row);
+      } catch {
+        if (!cancelled) setMe(null);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [username]);
+
+  useEffect(() => {
+    const mr = profile?.teaching_reviews?.my_review;
+    if (mr) {
+      setReviewRating(Number(mr.rating) || 5);
+      setReviewBody(typeof mr.body === "string" ? mr.body : "");
+    } else {
+      setReviewRating(5);
+      setReviewBody("");
+    }
+    setReviewError("");
+    setReviewSuccess("");
+  }, [profile?.teaching_reviews?.my_review, profile?.username]);
+
   const displayName = useMemo(() => {
     if (!profile) return username || "User";
     const fn = profile.first_name?.trim();
@@ -91,6 +166,37 @@ export default function UserProfilePage() {
 
   const teach = Array.isArray(profile?.teach_skills) ? profile.teach_skills : [];
   const learn = Array.isArray(profile?.learn_skills) ? profile.learn_skills : [];
+
+  const reviewsBlock = profile?.teaching_reviews;
+  const reviewItems = Array.isArray(reviewsBlock?.items) ? reviewsBlock.items : [];
+  const isOwnProfile =
+    Boolean(me?.username &&
+    profile?.username &&
+    String(me.username).toLowerCase() === String(profile.username).toLowerCase());
+  const canReviewOthers =
+    hasActiveSession() && Boolean(me) && Boolean(profile) && !isOwnProfile && teach.length > 0;
+
+  async function handleReviewSubmit(e) {
+    e.preventDefault();
+    if (!profile?.username) return;
+    setReviewError("");
+    setReviewSuccess("");
+    setReviewSaving(true);
+    try {
+      await upsertTeachingReview({
+        teacherUsername: profile.username,
+        rating: reviewRating,
+        body: reviewBody.trim(),
+      });
+      setReviewSuccess("Your review was saved.");
+      const data = await getPublicProfile(username);
+      setProfile(data);
+    } catch (err) {
+      setReviewError(err instanceof Error ? err.message : "Could not save review.");
+    } finally {
+      setReviewSaving(false);
+    }
+  }
 
   return (
     <div className="relative min-h-screen overflow-hidden bg-slate-950 text-slate-900">
@@ -241,6 +347,13 @@ export default function UserProfilePage() {
                     @{profile.username}
                   </p>
                   <div className="mt-2 flex flex-wrap items-center gap-2">
+                    {typeof reviewsBlock?.average_rating === "number" && reviewsBlock.count > 0 ? (
+                      <span className="inline-flex items-center gap-2 rounded-full border border-amber-200/90 bg-amber-50/95 px-3 py-1 text-xs font-semibold text-amber-950 shadow-sm">
+                        <StarRating value={reviewsBlock.average_rating} label={`Average ${reviewsBlock.average_rating} out of 5`} />
+                        <span className="text-amber-900/90">{reviewsBlock.average_rating}</span>
+                        <span className="font-normal text-amber-800/75">({reviewsBlock.count})</span>
+                      </span>
+                    ) : null}
                     {profile.date_of_joining ? (
                       <span className="inline-flex items-center gap-2 rounded-full border border-slate-200/80 bg-slate-50/90 px-3 py-1 text-xs font-medium text-slate-600 shadow-sm">
                         Joined{" "}
@@ -468,6 +581,144 @@ export default function UserProfilePage() {
                   )}
                 </div>
               </div>
+            </motion.section>
+
+            {/* Teaching reviews */}
+            <motion.section
+              {...fadeUp}
+              transition={{ duration: 0.45, delay: 0.1 }}
+              className={`${cardShell} p-6 sm:p-8`}
+            >
+              <div className="pointer-events-none absolute right-6 top-6 h-32 w-32 rounded-full bg-amber-200/25 blur-2xl" aria-hidden />
+
+              <div className="relative mb-6 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+                <div>
+                  <div className="mb-2 inline-flex items-center gap-2 rounded-full border border-amber-200/80 bg-amber-50 px-3 py-1 text-[11px] font-bold uppercase tracking-wider text-amber-900/80">
+                    <Star className="h-3 w-3 fill-amber-400 text-amber-500" />
+                    Teaching reviews
+                  </div>
+                  <h2 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">What learners say</h2>
+                  <p className="mt-1 text-sm text-slate-500">
+                    {teach.length === 0
+                      ? "This member has not added teaching skills yet — reviews apply to people who offer to teach."
+                      : "Ratings are out of 5 stars. One review per member you’ve signed in as."}
+                  </p>
+                </div>
+                {typeof reviewsBlock?.average_rating === "number" && reviewsBlock.count > 0 ? (
+                  <div className="flex items-center gap-3 rounded-2xl border border-amber-100 bg-gradient-to-r from-amber-50/80 to-white px-4 py-3 shadow-sm">
+                    <StarRating value={reviewsBlock.average_rating} label={`Average ${reviewsBlock.average_rating} of 5`} />
+                    <div>
+                      <p className="text-lg font-bold text-slate-900">{reviewsBlock.average_rating} / 5</p>
+                      <p className="text-xs text-slate-500">{reviewsBlock.count} review{reviewsBlock.count === 1 ? "" : "s"}</p>
+                    </div>
+                  </div>
+                ) : teach.length > 0 ? (
+                  <p className="text-sm font-medium text-slate-500">No reviews yet.</p>
+                ) : null}
+              </div>
+
+              {reviewItems.length > 0 ? (
+                <ul className="relative space-y-4">
+                  {reviewItems.map((rev) => (
+                    <li
+                      key={rev.id}
+                      className="rounded-2xl border border-slate-200/80 bg-white/90 px-4 py-4 shadow-sm ring-1 ring-slate-900/[0.03]"
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <p className="font-semibold text-slate-900">{reviewerLabel(rev.reviewer)}</p>
+                        <StarRating value={rev.rating} size="sm" label={`${rev.rating} stars`} />
+                      </div>
+                      <p className="mt-2 text-[15px] leading-relaxed text-slate-700">{rev.body}</p>
+                      <p className="mt-2 text-xs text-slate-400">
+                        {rev.created_at
+                          ? new Date(rev.created_at).toLocaleDateString(undefined, {
+                              year: "numeric",
+                              month: "short",
+                              day: "numeric",
+                            })
+                          : null}
+                      </p>
+                    </li>
+                  ))}
+                </ul>
+              ) : teach.length > 0 ? (
+                <p className="relative rounded-2xl border border-dashed border-slate-200 bg-slate-50/70 px-4 py-8 text-center text-sm text-slate-500">
+                  Be the first to share feedback once you’ve learned with this person.
+                </p>
+              ) : (
+                <p className="relative rounded-2xl border border-dashed border-slate-200 bg-slate-50/70 px-4 py-8 text-center text-sm text-slate-500">
+                  Teaching reviews appear after this member marks skills they can teach.
+                </p>
+              )}
+
+              {canReviewOthers ? (
+                <form className="relative mt-8 border-t border-slate-200/80 pt-6" onSubmit={(e) => void handleReviewSubmit(e)}>
+                  <p className="text-sm font-bold text-slate-900">{reviewsBlock?.my_review ? "Update your review" : "Write a review"}</p>
+                  <p className="mt-0.5 text-xs text-slate-500">Only you can edit your review — it replaces your previous rating and text.</p>
+
+                  <div className="mt-3">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Rating</p>
+                    <div className="mt-1.5 flex flex-wrap gap-1">
+                      {[1, 2, 3, 4, 5].map((n) => (
+                        <button
+                          key={n}
+                          type="button"
+                          onClick={() => setReviewRating(n)}
+                          aria-pressed={reviewRating === n}
+                          className={`rounded-lg p-1.5 transition ${reviewRating === n ? "bg-amber-100 ring-2 ring-amber-400" : "hover:bg-slate-100"}`}
+                          aria-label={`${n} star${n === 1 ? "" : "s"}`}
+                        >
+                          <Star
+                            className={`h-8 w-8 ${n <= reviewRating ? "fill-amber-400 text-amber-500" : "text-slate-300"}`}
+                            strokeWidth={n <= reviewRating ? 0 : 1.4}
+                          />
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <label className="mt-4 block text-sm font-medium text-slate-700">
+                    Your feedback
+                    <textarea
+                      value={reviewBody}
+                      onChange={(e) => setReviewBody(e.target.value)}
+                      rows={4}
+                      minLength={3}
+                      maxLength={4000}
+                      required
+                      placeholder="Share what stood out — clarity, pacing, usefulness…"
+                      className="mt-1 w-full resize-y rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-100"
+                    />
+                  </label>
+
+                  {reviewError ? (
+                    <p className="mt-2 text-sm text-red-600">{reviewError}</p>
+                  ) : null}
+                  {reviewSuccess ? (
+                    <p className="mt-2 text-sm text-emerald-700">{reviewSuccess}</p>
+                  ) : null}
+
+                  <div className="mt-3 flex justify-end">
+                    <button
+                      type="submit"
+                      disabled={reviewSaving || reviewBody.trim().length < 3}
+                      className="rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 px-4 py-2.5 text-sm font-semibold text-white shadow disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {reviewSaving ? "Saving…" : reviewsBlock?.my_review ? "Update review" : "Post review"}
+                    </button>
+                  </div>
+                </form>
+              ) : null}
+
+              {hasActiveSession() && me && isOwnProfile && teach.length > 0 ? (
+                <p className="relative mt-6 text-center text-xs text-slate-500">You can’t review your own profile.</p>
+              ) : null}
+
+              {hasActiveSession() && me && !isOwnProfile && teach.length === 0 ? (
+                <p className="relative mt-6 text-center text-xs text-slate-500">
+                  Reviews are only enabled for members who list skills they can teach.
+                </p>
+              ) : null}
             </motion.section>
           </div>
         )}

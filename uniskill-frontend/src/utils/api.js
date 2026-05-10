@@ -132,6 +132,22 @@ export async function getPublicProfile(username) {
   return authRequest(`/api/profile/${encodeURIComponent(username)}`, { method: "GET" });
 }
 
+/**
+ * Star rating + text for a member who teaches at least one skill (upsert per viewer).
+ * @param {{ teacherUsername: string, rating: number, body: string }} payload
+ */
+export async function upsertTeachingReview(payload) {
+  const { teacherUsername, rating, body } = payload;
+  return authRequest("/api/reviews", {
+    method: "POST",
+    body: {
+      teacher_username: teacherUsername,
+      rating,
+      body,
+    },
+  });
+}
+
 /** @returns {Promise<object[]>} Other users with teach/learn skills */
 export async function discoverProfiles() {
   return authRequest("/api/profile/discover", { method: "GET" });
@@ -261,4 +277,35 @@ export async function getMessagePreviews() {
 /** Mark all messages from otherUserId to me as read */
 export async function markMessagesRead(otherUserId) {
   return authRequest(`/api/messages/${encodeURIComponent(otherUserId)}/read`, { method: "PATCH" });
+}
+
+// ─── Meetings / schedule ─────────────────────────────────────────────────────
+
+/**
+ * @param {{ from?: string, to?: string }} [range] ISO datetimes — filter meetings overlapping window
+ * @returns {Promise<object[]>}
+ */
+export async function getMyMeetings(range = {}) {
+  const params = new URLSearchParams();
+  if (range.from) {
+    params.set("from", range.from);
+  }
+  if (range.to) {
+    params.set("to", range.to);
+  }
+  const q = params.toString();
+  const path = q ? `/api/meetings?${q}` : "/api/meetings";
+  const json = await authRequest(path, { method: "GET" });
+  return Array.isArray(json?.meetings) ? json.meetings : [];
+}
+
+/**
+ * @param {object} body — participant_id (uuid), starts_at, ends_at (ISO), title?, notes?
+ */
+export async function createMeeting(body) {
+  return authRequest("/api/meetings", { method: "POST", body });
+}
+
+export async function cancelMeeting(meetingId) {
+  return authRequest(`/api/meetings/${encodeURIComponent(meetingId)}`, { method: "DELETE" });
 }

@@ -58,11 +58,11 @@ If `public.users` already exists without `password_hash`, run in Supabase SQL Ed
 alter table public.users add column if not exists password_hash text;
 ```
 
-If `expert` proficiency_level fails to save, run:
+If `expert` proficiency_level fails to save, run **`supabase-fix-proficiency-level.sql`** (see that file).
 
-```sql
--- file: supabase-fix-proficiency-level.sql
-```
+### Schedule / `public.meetings`
+
+The dashboard **Schedule** tab uses `GET/POST/DELETE /api/meetings`. Create the table with **`supabase-meetings.sql`** once if it does not exist.
 
 ## Setup
 

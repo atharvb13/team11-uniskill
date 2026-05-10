@@ -1,10 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useNavigate } from "react-router-dom";
-import { Eye, Home, Loader2, LogOut, MessageSquare, RefreshCw, Sparkles, User } from "lucide-react";
+import { Calendar, Eye, Home, Loader2, LogOut, MessageSquare, RefreshCw, Sparkles, User } from "lucide-react";
 import DashboardBody from "../components/dashboard/DashboardBody";
 import HomeTab from "../components/dashboard/HomeTab";
 import ChatTab from "../components/dashboard/ChatTab";
+import ScheduleTab from "../components/dashboard/ScheduleTab";
 import ProfileOnboardingModal from "../components/ProfileOnboardingModal";
 import { getMyProfile, getMySkills, getPendingRequests, removeMySkill } from "../utils/api";
 import { clearSession } from "../utils/session";
@@ -13,6 +14,7 @@ import { clearLocalOnboarding } from "../utils/onboardingLocal";
 const TABS = [
   { id: "home", label: "Home", icon: Home },
   { id: "chat", label: "Chat", icon: MessageSquare },
+  { id: "schedule", label: "Schedule", icon: Calendar },
   { id: "profile", label: "Profile", icon: User },
 ];
 
@@ -246,6 +248,8 @@ export default function DashboardPage() {
               {activeTab === "home" && <HomeTab myId={profile?.id} />}
 
               {activeTab === "chat" && <ChatTab myId={profile?.id} />}
+
+              {activeTab === "schedule" && <ScheduleTab />}
 
               {activeTab === "profile" && (
                 <div className="space-y-8">
