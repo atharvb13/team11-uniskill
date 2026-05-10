@@ -168,17 +168,17 @@ def register(body: RegisterBody) -> Any:
     password_hash_bytes = bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt(rounds=BCRYPT_ROUNDS))
     password_hash = password_hash_bytes.decode("utf-8")
 
+    profile_row = {
+        "id": user_id,
+        "username": username,
+        "first_name": first_name,
+        "last_name": last_name,
+        "contact_email": email,
+        "password_hash": password_hash,
+    }
     try:
-        supabase_admin_client.table("users").insert(
-            {
-                "id": user_id,
-                "username": username,
-                "first_name": first_name,
-                "last_name": last_name,
-                "contact_email": email,
-                "password_hash": password_hash,
-            }
-        ).execute()
+        # Upsert: a DB trigger may already insert `public.users` when `auth.users` is created; retries also hit PK conflicts.
+        supabase_admin_client.table("users").upsert(profile_row, on_conflict="id").execute()
     except APIError as e:
         if user_id:
             try:
