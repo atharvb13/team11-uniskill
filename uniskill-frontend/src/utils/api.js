@@ -124,6 +124,14 @@ export async function updateMyProfile(payload) {
   return authRequest("/api/profile/me", { method: "PATCH", body: payload });
 }
 
+/**
+ * @param {string} username
+ * @returns {Promise<object>} public profile with teach_skills and learn_skills
+ */
+export async function getPublicProfile(username) {
+  return authRequest(`/api/profile/${encodeURIComponent(username)}`, { method: "GET" });
+}
+
 /** @returns {Promise<object[]>} Other users with teach/learn skills */
 export async function discoverProfiles() {
   return authRequest("/api/profile/discover", { method: "GET" });

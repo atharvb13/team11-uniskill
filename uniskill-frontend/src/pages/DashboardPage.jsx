@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useNavigate } from "react-router-dom";
-import { Home, Loader2, LogOut, MessageSquare, RefreshCw, Sparkles, User } from "lucide-react";
+import { Eye, Home, Loader2, LogOut, MessageSquare, RefreshCw, Sparkles, User } from "lucide-react";
 import DashboardBody from "../components/dashboard/DashboardBody";
 import HomeTab from "../components/dashboard/HomeTab";
 import ChatTab from "../components/dashboard/ChatTab";
@@ -291,6 +291,16 @@ export default function DashboardPage() {
                   ) : (
                     <>
                       <div className="flex flex-wrap justify-end gap-3">
+                        {profile?.username && (
+                          <button
+                            type="button"
+                            onClick={() => navigate(`/profile/${profile.username}`)}
+                            className="inline-flex items-center gap-2 rounded-2xl border border-emerald-400/30 bg-emerald-500/10 px-5 py-2.5 text-sm font-semibold text-emerald-200 backdrop-blur-sm transition hover:bg-emerald-500/20 hover:text-white"
+                          >
+                            <Eye className="h-4 w-4" />
+                            Preview public profile
+                          </button>
+                        )}
                         <button
                           type="button"
                           disabled={resetting}

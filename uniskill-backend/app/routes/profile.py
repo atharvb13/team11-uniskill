@@ -11,10 +11,12 @@ from app.supabase_clients import supabase_admin_client
 
 _PROFILE_SELECT = (
     "id, username, first_name, last_name, contact_email, bio, "
-    "date_of_joining, profile_picture_url, created_at, updated_at"
+    "date_of_joining, profile_picture_url, created_at, updated_at, "
+    "program, degree_type, linkedin_url, github_url, portfolio_url"
 )
 _PUBLIC_SELECT = (
-    "username, first_name, last_name, bio, date_of_joining, profile_picture_url"
+    "id, username, first_name, last_name, bio, date_of_joining, profile_picture_url, "
+    "program, degree_type, linkedin_url, github_url, portfolio_url"
 )
 _DISCOVER_USER_SELECT = "id, username, first_name, last_name, bio"
 _DISCOVER_SKILL_SELECT = (
@@ -39,6 +41,11 @@ class UpdateProfileBody(BaseModel):
     last_name: str | None = None
     bio: str | None = None
     profile_picture_url: str | None = None
+    program: str | None = None
+    degree_type: str | None = None
+    linkedin_url: str | None = None
+    github_url: str | None = None
+    portfolio_url: str | None = None
 
 
 def _proficiency_rank(value: str | None) -> int:
@@ -90,11 +97,16 @@ def update_profile(
 ) -> Any:
     raw = body.model_dump()
     updates: dict[str, Any] = {}
+    _strip_fields = {"first_name", "last_name", "bio", "program", "degree_type",
+                     "linkedin_url", "github_url", "portfolio_url", "profile_picture_url"}
     for k, v in raw.items():
         if v is None:
             continue
-        if k in ("first_name", "last_name", "bio"):
-            updates[k] = str(v).strip() if isinstance(v, str) else v
+        if k in _strip_fields:
+            stripped = str(v).strip() if isinstance(v, str) else v
+            updates[k] = stripped if stripped else None
+            if updates[k] is None:
+                del updates[k]
             continue
         updates[k] = v
 
@@ -492,4 +504,41 @@ def get_public_profile(username: str) -> Any:
 
     if not rows:
         raise HTTPException(status_code=404, detail="User not found.")
-    return rows[0]
+
+    profile = dict(rows[0])
+    user_id = profile.pop("id", None)
+
+    teach_skills: list[dict[str, Any]] = []
+    learn_skills: list[dict[str, Any]] = []
+
+    if user_id:
+        try:
+            skill_rows = (
+                supabase_admin_client.table("user_skills")
+                .select(_DISCOVER_SKILL_SELECT)
+                .eq("user_id", user_id)
+                .execute()
+                .data
+                or []
+            )
+        except APIError as e:
+            raise HTTPException(status_code=500, detail=str(e)) from e
+
+        for row in skill_rows:
+            s = row.get("skills")
+            skill = s[0] if isinstance(s, list) else s
+            if not isinstance(skill, dict):
+                continue
+            payload = {
+                "name": skill.get("name"),
+                "category": skill.get("category"),
+                "proficiency_level": row.get("proficiency_level"),
+            }
+            if row.get("can_teach"):
+                teach_skills.append(payload)
+            if row.get("wants_to_learn"):
+                learn_skills.append(payload)
+
+    profile["teach_skills"] = teach_skills
+    profile["learn_skills"] = learn_skills
+    return profile
