@@ -17,6 +17,7 @@ from supabase_auth.errors import AuthApiError
 from app.supabase_clients import supabase_auth_client
 
 _bearer = HTTPBearer()
+_optional_bearer = HTTPBearer(auto_error=False)
 
 _MAX_RETRIES = 2          # total extra attempts after the first failure
 _RETRY_DELAY = 0.4        # seconds between retries
@@ -47,3 +48,21 @@ def get_current_user_id(
         status_code=503,
         detail="Auth service temporarily unavailable. Please retry.",
     )
+
+
+def get_optional_user_id(
+    credentials: HTTPAuthorizationCredentials | None = Depends(_optional_bearer),
+) -> str | None:
+    """Same verification as get_current_user_id, but returns None when no/invalid token."""
+    if credentials is None or not getattr(credentials, "credentials", None):
+        return None
+    token = credentials.credentials
+    try:
+        res = supabase_auth_client.auth.get_user(token)
+        if not res.user or not res.user.id:
+            return None
+        return str(res.user.id)
+    except AuthApiError:
+        return None
+    except httpx.HTTPError:
+        return None

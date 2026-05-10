@@ -6,7 +6,8 @@ from fastapi.responses import JSONResponse
 from postgrest.exceptions import APIError
 from pydantic import BaseModel
 
-from app.dependencies import get_current_user_id
+from app.dependencies import get_current_user_id, get_optional_user_id
+from app.routes.reviews import build_teaching_reviews_payload
 from app.supabase_clients import supabase_admin_client
 
 _PROFILE_SELECT = (
@@ -488,7 +489,10 @@ def get_recommendations(user_id: str = Depends(get_current_user_id)) -> Any:
 
 
 @router.get("/{username}")
-def get_public_profile(username: str) -> Any:
+def get_public_profile(
+    username: str,
+    viewer_id: str | None = Depends(get_optional_user_id),
+) -> Any:
     try:
         rows = (
             supabase_admin_client.table("users")
@@ -541,4 +545,12 @@ def get_public_profile(username: str) -> Any:
 
     profile["teach_skills"] = teach_skills
     profile["learn_skills"] = learn_skills
+    if user_id:
+        profile["teaching_reviews"] = build_teaching_reviews_payload(str(user_id), viewer_id)
+    else:
+        profile["teaching_reviews"] = {
+            "average_rating": None,
+            "count": 0,
+            "items": [],
+        }
     return profile
