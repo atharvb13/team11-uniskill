@@ -4,6 +4,7 @@ import { ArrowRight, Lock, Mail, User } from "lucide-react";
 import AuthLayout from "../components/AuthLayout";
 import FormField from "../components/FormField";
 import PasswordStrength from "../components/PasswordStrength";
+import { supabase } from "../lib/supabaseClient";
 import { registerUser } from "../utils/api";
 import { mapRegisterServerError, validateRegister } from "../utils/validation";
 
@@ -22,6 +23,7 @@ export default function RegisterPage() {
   const [serverFieldErrors, setServerFieldErrors] = useState({});
   const [nextStepMessage, setNextStepMessage] = useState("");
   const [registrationSuccess, setRegistrationSuccess] = useState(false);
+  const [googleSubmitting, setGoogleSubmitting] = useState(false);
   /** Inline errors only after first submit attempt — avoids all-red empty form on load. */
   const [showFieldErrors, setShowFieldErrors] = useState(false);
 
@@ -72,6 +74,31 @@ export default function RegisterPage() {
     }
   };
 
+  const handleGoogleSignIn = async () => {
+    setServerMessage("");
+    setServerFieldErrors({});
+    setNextStepMessage("");
+    if (!supabase) {
+      setServerMessage("Google sign-in is not configured.");
+      return;
+    }
+
+    setGoogleSubmitting(true);
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: {
+        redirectTo: `${window.location.origin}/auth/callback`,
+        queryParams: {
+          hd: "umass.edu",
+        },
+      },
+    });
+    if (error) {
+      setGoogleSubmitting(false);
+      setServerMessage(error.message || "Could not start Google sign-in.");
+    }
+  };
+
   const displayErrors = { ...errors, ...serverFieldErrors };
 
   return (
@@ -80,6 +107,22 @@ export default function RegisterPage() {
       subtitle="Join UniSkill with your verified UMass email."
     >
       <form className="space-y-5" onSubmit={handleSubmit}>
+        <button
+          type="button"
+          onClick={handleGoogleSignIn}
+          disabled={googleSubmitting || submitting || registrationSuccess}
+          className="flex w-full items-center justify-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-800 transition hover:translate-y-[-1px] hover:border-slate-300 hover:bg-slate-50 disabled:opacity-60"
+        >
+          <span className="text-base font-bold text-slate-950">G</span>
+          {googleSubmitting ? "Opening Google..." : "Continue with Google"}
+        </button>
+
+        <div className="flex items-center gap-3 text-xs font-medium uppercase tracking-[0.12em] text-slate-400">
+          <span className="h-px flex-1 bg-slate-200" />
+          or
+          <span className="h-px flex-1 bg-slate-200" />
+        </div>
+
         <FormField
           icon={User}
           placeholder="First name"

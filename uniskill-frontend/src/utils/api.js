@@ -99,6 +99,27 @@ export async function loginUser({ identifier, password }) {
   return sendRequest("/api/auth/login", { identifier, password });
 }
 
+export async function syncGoogleSession(session) {
+  const accessToken = session?.access_token;
+  if (!accessToken) {
+    throw new Error("Google sign-in did not return a session.");
+  }
+
+  const response = await fetch(`${API_BASE_URL}/api/auth/google`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify({
+      refreshToken: session?.refresh_token ?? null,
+      expiresAt: session?.expires_at ?? null,
+    }),
+  });
+
+  return parseJsonResponse(response);
+}
+
 /** @returns {Promise<object|null>} profile row or null if 404 */
 export async function getMyProfile() {
   const token = getAccessToken();

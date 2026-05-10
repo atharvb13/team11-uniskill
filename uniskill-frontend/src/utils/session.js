@@ -25,6 +25,14 @@ export function saveSession(session) {
   }
 }
 
+export function saveSupabaseSession(session) {
+  saveSession({
+    accessToken: session?.access_token,
+    refreshToken: session?.refresh_token,
+    expiresAt: session?.expires_at,
+  });
+}
+
 export function clearSession() {
   localStorage.removeItem(ACCESS_TOKEN_KEY);
   localStorage.removeItem(REFRESH_TOKEN_KEY);

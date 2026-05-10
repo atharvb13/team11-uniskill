@@ -9,6 +9,10 @@ def normalize_email(email: str | None) -> str:
     return (email or "").strip().lower()
 
 
+def is_umass_email(email: str | None) -> bool:
+    return bool(umass_email_re.match(normalize_email(email)))
+
+
 def validate_password(password: str) -> tuple[bool, dict[str, bool]]:
     checks = {
         "minLength": len(password) >= 8,
