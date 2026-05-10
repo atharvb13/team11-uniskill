@@ -54,6 +54,11 @@ function emptyDraft() {
     first_name: "",
     last_name: "",
     bio: "",
+    program: "",
+    degree_type: "",
+    linkedin_url: "",
+    github_url: "",
+    portfolio_url: "",
   };
 }
 
@@ -80,6 +85,11 @@ export default function DashboardBody({ profile, skills, onRefresh }) {
       first_name: profile.first_name ?? "",
       last_name: profile.last_name ?? "",
       bio: profile.bio ?? "",
+      program: profile.program ?? "",
+      degree_type: profile.degree_type ?? "",
+      linkedin_url: profile.linkedin_url ?? "",
+      github_url: profile.github_url ?? "",
+      portfolio_url: profile.portfolio_url ?? "",
     });
   }, [profile]);
 
@@ -136,6 +146,11 @@ export default function DashboardBody({ profile, skills, onRefresh }) {
         first_name: draft.first_name.trim() || undefined,
         last_name: draft.last_name.trim() || undefined,
         bio: draft.bio.trim(),
+        program: draft.program.trim() || undefined,
+        degree_type: draft.degree_type.trim() || undefined,
+        linkedin_url: draft.linkedin_url.trim() || undefined,
+        github_url: draft.github_url.trim() || undefined,
+        portfolio_url: draft.portfolio_url.trim() || undefined,
       });
       await onRefresh();
     } catch (e) {
@@ -379,11 +394,92 @@ export default function DashboardBody({ profile, skills, onRefresh }) {
             <label className="block text-sm font-medium text-slate-700">
               Bio
               <textarea
-                rows={6}
+                rows={4}
                 className={`${inputClass} resize-none bg-slate-50/50`}
                 placeholder="A short intro: who you are, what you enjoy, and what you’re hoping to learn or find on UniSkill…"
                 value={draft.bio}
                 onChange={(e) => setDraft((d) => ({ ...d, bio: e.target.value }))}
+              />
+            </label>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <label className="block text-sm font-medium text-slate-700">
+                Program
+                <input
+                  className={inputClass}
+                  placeholder="e.g. Computer Science"
+                  value={draft.program}
+                  onChange={(e) => setDraft((d) => ({ ...d, program: e.target.value }))}
+                />
+              </label>
+              <label className="block text-sm font-medium text-slate-700">
+                Degree type
+                <select
+                  className={inputClass}
+                  value={draft.degree_type}
+                  onChange={(e) => setDraft((d) => ({ ...d, degree_type: e.target.value }))}
+                >
+                  <option value="">— Select —</option>
+                  <optgroup label="Undergraduate">
+                    <option value="BA">BA — Bachelor of Arts</option>
+                    <option value="BS">BS — Bachelor of Science</option>
+                    <option value="BFA">BFA — Bachelor of Fine Arts</option>
+                    <option value="BBA">BBA — Bachelor of Business Administration</option>
+                  </optgroup>
+                  <optgroup label="Graduate">
+                    <option value="MA">MA — Master of Arts</option>
+                    <option value="MS">MS — Master of Science</option>
+                    <option value="MBA">MBA — Master of Business Administration</option>
+                    <option value="MEd">MEd — Master of Education</option>
+                    <option value="MFA">MFA — Master of Fine Arts</option>
+                    <option value="MEng">MEng — Master of Engineering</option>
+                    <option value="MPH">MPH — Master of Public Health</option>
+                  </optgroup>
+                  <optgroup label="Doctoral">
+                    <option value="PhD">PhD — Doctor of Philosophy</option>
+                    <option value="EdD">EdD — Doctor of Education</option>
+                  </optgroup>
+                  <optgroup label="Other">
+                    <option value="Certificate">Certificate</option>
+                    <option value="Other">Other</option>
+                  </optgroup>
+                </select>
+              </label>
+            </div>
+          </div>
+        </div>
+
+        {/* Links row */}
+        <div className="relative mt-6 border-t border-slate-200/70 pt-6">
+          <p className="mb-4 text-xs font-bold uppercase tracking-wider text-slate-400">Links</p>
+          <div className="grid gap-4 sm:grid-cols-3">
+            <label className="block text-sm font-medium text-slate-700">
+              LinkedIn URL
+              <input
+                type="url"
+                className={inputClass}
+                placeholder="https://linkedin.com/in/yourname"
+                value={draft.linkedin_url}
+                onChange={(e) => setDraft((d) => ({ ...d, linkedin_url: e.target.value }))}
+              />
+            </label>
+            <label className="block text-sm font-medium text-slate-700">
+              GitHub URL
+              <input
+                type="url"
+                className={inputClass}
+                placeholder="https://github.com/yourname"
+                value={draft.github_url}
+                onChange={(e) => setDraft((d) => ({ ...d, github_url: e.target.value }))}
+              />
+            </label>
+            <label className="block text-sm font-medium text-slate-700">
+              Portfolio URL
+              <input
+                type="url"
+                className={inputClass}
+                placeholder="https://yourportfolio.com"
+                value={draft.portfolio_url}
+                onChange={(e) => setDraft((d) => ({ ...d, portfolio_url: e.target.value }))}
               />
             </label>
           </div>

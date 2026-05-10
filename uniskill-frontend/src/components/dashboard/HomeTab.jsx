@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { CheckCircle2, Clock, GraduationCap, Loader2, Search, Target, UserPlus } from "lucide-react";
 import {
@@ -95,6 +96,7 @@ function ConnectButton({ userId, status, onConnect }) {
 }
 
 export default function HomeTab({ myId }) {
+  const navigate = useNavigate();
   const [query, setQuery] = useState("");
   const [recommendations, setRecommendations] = useState([]);
   const [searchResults, setSearchResults] = useState([]);
@@ -247,14 +249,18 @@ export default function HomeTab({ myId }) {
                     className="rounded-3xl border border-white/10 bg-white/[0.05] p-5 text-slate-100 shadow-lg shadow-black/10"
                   >
                     <div className="flex items-start justify-between gap-3">
-                      <div>
+                      <button
+                        type="button"
+                        onClick={() => user?.username && navigate(`/profile/${user.username}`)}
+                        className="min-w-0 text-left transition hover:opacity-80"
+                      >
                         <p className="text-lg font-semibold">
                           {`${user?.first_name?.trim() || ""} ${user?.last_name?.trim() || ""}`.trim() ||
                             user?.username ||
                             "Unnamed user"}
                         </p>
                         <p className="text-xs text-slate-400">@{user?.username || "unknown"}</p>
-                      </div>
+                      </button>
                       {user.id !== myId && (
                         <ConnectButton
                           userId={user.id}
@@ -328,7 +334,11 @@ export default function HomeTab({ myId }) {
                     className="rounded-3xl border border-white/10 bg-white/[0.05] p-5 text-slate-100 shadow-lg shadow-black/10"
                   >
                     <div className="flex items-start justify-between gap-3">
-                      <div>
+                      <button
+                        type="button"
+                        onClick={() => user?.username && navigate(`/profile/${user.username}`)}
+                        className="min-w-0 text-left transition hover:opacity-80"
+                      >
                         <div
                           className={`mb-2 inline-flex rounded-full border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide ${meta.className}`}
                         >
@@ -336,7 +346,7 @@ export default function HomeTab({ myId }) {
                         </div>
                         <p className="text-lg font-semibold">{fullName(rec)}</p>
                         <p className="text-xs text-slate-400">@{user.username || "unknown"}</p>
-                      </div>
+                      </button>
                       {user.id && user.id !== myId && (
                         <ConnectButton
                           userId={user.id}
