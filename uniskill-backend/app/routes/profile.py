@@ -557,5 +557,6 @@ def get_public_profile(
             "average_rating": None,
             "count": 0,
             "items": [],
+            "eligible_to_review": False,
         }
     return profile

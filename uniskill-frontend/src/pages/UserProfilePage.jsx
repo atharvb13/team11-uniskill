@@ -15,6 +15,11 @@ import {
   ImageIcon,
   Linkedin,
   Loader2,
+  ShieldCheck,
+  Sparkles,
+  Star,
+  Target,
+  Trash2,
   MessageSquare,
   Paperclip,
   Pencil,
@@ -99,6 +104,7 @@ export default function UserProfilePage() {
   const [reviewRating, setReviewRating] = useState(5);
   const [reviewBody, setReviewBody] = useState("");
   const [reviewSaving, setReviewSaving] = useState(false);
+  const [reviewDeleting, setReviewDeleting] = useState(false);
   const [reviewError, setReviewError] = useState("");
   const [reviewSuccess, setReviewSuccess] = useState("");
 
@@ -214,8 +220,17 @@ export default function UserProfilePage() {
     Boolean(me?.username &&
     profile?.username &&
     String(me.username).toLowerCase() === String(profile.username).toLowerCase());
-  const canReviewOthers =
+  const reviewAudience =
     hasActiveSession() && Boolean(me) && Boolean(profile) && !isOwnProfile && teach.length > 0;
+  const reviewGatingActive =
+    reviewsBlock != null && Object.prototype.hasOwnProperty.call(reviewsBlock, "eligible_to_review");
+  const canUseReviewForm =
+    reviewAudience && (!reviewGatingActive || Boolean(reviewsBlock?.eligible_to_review));
+  const showLegacyMyReview =
+    reviewAudience &&
+    Boolean(reviewsBlock?.my_review) &&
+    reviewGatingActive &&
+    !reviewsBlock?.eligible_to_review;
 
   async function handleConnect() {
     const targetId = profile?.profile_user_id;
@@ -265,6 +280,27 @@ export default function UserProfilePage() {
       setReviewError(err instanceof Error ? err.message : "Could not save review.");
     } finally {
       setReviewSaving(false);
+    }
+  }
+
+  async function handleReviewDelete() {
+    const id = reviewsBlock?.my_review?.id;
+    if (!id) return;
+    if (!window.confirm("Delete your review permanently? You can post a new one after a completed meeting.")) {
+      return;
+    }
+    setReviewError("");
+    setReviewSuccess("");
+    setReviewDeleting(true);
+    try {
+      await deleteTeachingReview(String(id));
+      setReviewSuccess("Your review was removed.");
+      const data = await getPublicProfile(username);
+      setProfile(data);
+    } catch (err) {
+      setReviewError(err instanceof Error ? err.message : "Could not delete review.");
+    } finally {
+      setReviewDeleting(false);
     }
   }
 
@@ -741,7 +777,7 @@ export default function UserProfilePage() {
                   <p className="mt-1 text-sm text-slate-500">
                     {teach.length === 0
                       ? "This member has not added teaching skills yet — reviews apply to people who offer to teach."
-                      : "Ratings are out of 5 stars. One review per member you’ve signed in as."}
+                      : "Ratings are out of 5 stars. New reviews require a completed UniSkill meeting (not cancelled). Reviews marked “Verified session” were saved under that rule."}
                   </p>
                 </div>
                 {typeof reviewsBlock?.average_rating === "number" && reviewsBlock.count > 0 ? (
@@ -766,7 +802,18 @@ export default function UserProfilePage() {
                     >
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <p className="font-semibold text-slate-900">{reviewerLabel(rev.reviewer)}</p>
-                        <StarRating value={rev.rating} size="sm" label={`${rev.rating} stars`} />
+                        <div className="flex flex-wrap items-center gap-2">
+                          {rev.session_verified ? (
+                            <span
+                              className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-900"
+                              title="Learner had a completed meeting with this teacher on UniSkill"
+                            >
+                              <ShieldCheck className="h-3.5 w-3.5 text-emerald-600" aria-hidden />
+                              Verified session
+                            </span>
+                          ) : null}
+                          <StarRating value={rev.rating} size="sm" label={`${rev.rating} stars`} />
+                        </div>
                       </div>
                       <p className="mt-2 text-[15px] leading-relaxed text-slate-700">{rev.body}</p>
                       <p className="mt-2 text-xs text-slate-400">
@@ -791,10 +838,13 @@ export default function UserProfilePage() {
                 </p>
               )}
 
-              {canReviewOthers ? (
+              {canUseReviewForm ? (
                 <form className="relative mt-8 border-t border-slate-200/80 pt-6" onSubmit={(e) => void handleReviewSubmit(e)}>
                   <p className="text-sm font-bold text-slate-900">{reviewsBlock?.my_review ? "Update your review" : "Write a review"}</p>
-                  <p className="mt-0.5 text-xs text-slate-500">Only you can edit your review — it replaces your previous rating and text.</p>
+                  <p className="mt-0.5 text-xs text-slate-500">
+                    Only you can edit your review. Posting or updating marks it as a verified session because you have a
+                    completed meeting with this person.
+                  </p>
 
                   <div className="mt-3">
                     <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Rating</p>
@@ -838,7 +888,20 @@ export default function UserProfilePage() {
                     <p className="mt-2 text-sm text-emerald-700">{reviewSuccess}</p>
                   ) : null}
 
-                  <div className="mt-3 flex justify-end">
+                  <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+                    {reviewsBlock?.my_review?.id ? (
+                      <button
+                        type="button"
+                        onClick={() => void handleReviewDelete()}
+                        disabled={reviewDeleting || reviewSaving}
+                        className="inline-flex items-center gap-1.5 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-800 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        <Trash2 className="h-4 w-4" aria-hidden />
+                        {reviewDeleting ? "Deleting…" : "Delete review"}
+                      </button>
+                    ) : (
+                      <span />
+                    )}
                     <button
                       type="submit"
                       disabled={reviewSaving || reviewBody.trim().length < 3}
@@ -848,6 +911,38 @@ export default function UserProfilePage() {
                     </button>
                   </div>
                 </form>
+              ) : null}
+
+              {showLegacyMyReview ? (
+                <div className="relative mt-8 border-t border-slate-200/80 pt-6">
+                  <p className="text-sm font-bold text-slate-900">Your review (legacy)</p>
+                  <p className="mt-1 text-xs text-slate-500">
+                    This entry is not tied to a verified meeting record. Complete a UniSkill meeting with this person to
+                    post an updated verified review, or remove this one.
+                  </p>
+                  <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50/80 px-3 py-2.5 text-sm text-slate-700">
+                    <StarRating value={reviewsBlock.my_review.rating} size="sm" label={`${reviewsBlock.my_review.rating} stars`} />
+                    <p className="mt-2 whitespace-pre-wrap">{reviewsBlock.my_review.body}</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void handleReviewDelete()}
+                    disabled={reviewDeleting}
+                    className="mt-3 inline-flex items-center gap-1.5 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-800 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <Trash2 className="h-4 w-4" aria-hidden />
+                    {reviewDeleting ? "Deleting…" : "Delete my review"}
+                  </button>
+                  {reviewError ? <p className="mt-2 text-sm text-red-600">{reviewError}</p> : null}
+                  {reviewSuccess ? <p className="mt-2 text-sm text-emerald-700">{reviewSuccess}</p> : null}
+                </div>
+              ) : null}
+
+              {reviewAudience && !canUseReviewForm && !showLegacyMyReview ? (
+                <p className="relative mt-6 rounded-xl border border-slate-200/80 bg-slate-50/80 px-4 py-3 text-center text-xs text-slate-600">
+                  Schedule a meeting from the dashboard, let it finish (end time in the past), then you can leave a verified
+                  review here.
+                </p>
               ) : null}
 
               {hasActiveSession() && me && isOwnProfile && teach.length > 0 ? (

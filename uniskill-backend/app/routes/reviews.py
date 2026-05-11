@@ -41,8 +41,48 @@ def teacher_has_can_teach_skill(teacher_id: str) -> bool:
     return bool(rows)
 
 
+def had_completed_session(reviewer_id: str, teacher_id: str) -> bool:
+    """True if the pair had a non-cancelled meeting whose end time is already past (session occurred)."""
+    return reviewer_id in reviewer_ids_with_completed_session(teacher_id, [reviewer_id])
+
+
+def reviewer_ids_with_completed_session(teacher_id: str, reviewer_ids: list[str]) -> set[str]:
+    """Which reviewer_ids have had at least one completed scheduled meeting with teacher_id."""
+    ids = [str(x) for x in reviewer_ids if x]
+    if not ids:
+        return set()
+    now_iso = datetime.now(timezone.utc).isoformat()
+    verified: set[str] = set()
+    try:
+        for other_col, teacher_col in (("participant_id", "organizer_id"), ("organizer_id", "participant_id")):
+            hit = (
+                supabase_admin_client.table("meetings")
+                .select(other_col)
+                .eq("status", "scheduled")
+                .eq(teacher_col, teacher_id)
+                .in_(other_col, ids)
+                .lt("ends_at", now_iso)
+                .execute()
+                .data
+                or []
+            )
+            for row in hit:
+                uid = str(row.get(other_col) or "")
+                if uid:
+                    verified.add(uid)
+    except APIError as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+    return verified
+
+
 def build_teaching_reviews_payload(teacher_id: str, viewer_id: str | None) -> dict[str, Any]:
     """Public summary + recent reviews for a teacher profile."""
+    eligible_to_review = False
+    if viewer_id and str(viewer_id) != str(teacher_id):
+        eligible_to_review = teacher_has_can_teach_skill(teacher_id) and had_completed_session(
+            str(viewer_id), str(teacher_id)
+        )
+
     try:
         rows = (
             supabase_admin_client.table("teacher_reviews")
@@ -56,12 +96,16 @@ def build_teaching_reviews_payload(teacher_id: str, viewer_id: str | None) -> di
     except APIError as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
+    reviewer_ids_for_badge = list({str(r["reviewer_id"]) for r in rows if r.get("reviewer_id")})
+    session_verified_by_reviewer = reviewer_ids_with_completed_session(str(teacher_id), reviewer_ids_for_badge)
+
     count = len(rows)
     if count == 0:
         payload: dict[str, Any] = {
             "average_rating": None,
             "count": 0,
             "items": [],
+            "eligible_to_review": eligible_to_review,
         }
         if viewer_id:
             payload["my_review"] = None
@@ -99,6 +143,7 @@ def build_teaching_reviews_payload(teacher_id: str, viewer_id: str | None) -> di
                 "rating": r.get("rating"),
                 "body": r.get("body"),
                 "created_at": r.get("created_at"),
+                "session_verified": rid in session_verified_by_reviewer,
                 "reviewer": {
                     "username": ru.get("username"),
                     "first_name": ru.get("first_name"),
@@ -111,6 +156,7 @@ def build_teaching_reviews_payload(teacher_id: str, viewer_id: str | None) -> di
         "average_rating": round(avg, 1),
         "count": count,
         "items": items,
+        "eligible_to_review": eligible_to_review,
     }
 
     if viewer_id:
@@ -121,6 +167,7 @@ def build_teaching_reviews_payload(teacher_id: str, viewer_id: str | None) -> di
                 "rating": mine.get("rating"),
                 "body": mine.get("body"),
                 "created_at": mine.get("created_at"),
+                "session_verified": str(viewer_id) in session_verified_by_reviewer,
             }
         else:
             out["my_review"] = None
@@ -160,6 +207,12 @@ def upsert_teaching_review(
         raise HTTPException(
             status_code=400,
             detail="Reviews are only for members who offer at least one teaching skill.",
+        )
+
+    if not had_completed_session(user_id, teacher_id):
+        raise HTTPException(
+            status_code=403,
+            detail="You can only leave a review after a completed meeting with this person on UniSkill (not cancelled, end time in the past).",
         )
 
     text = body.body.strip()
@@ -213,3 +266,29 @@ def upsert_teaching_review(
         raise HTTPException(status_code=500, detail=str(e)) from e
 
     return {"message": "Review saved.", "review_id": review_id}
+
+
+@router.delete("/{review_id}", status_code=204)
+def delete_teaching_review(review_id: str, user_id: str = Depends(get_current_user_id)) -> None:
+    try:
+        rows = (
+            supabase_admin_client.table("teacher_reviews")
+            .select("id, reviewer_id")
+            .eq("id", review_id)
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+    except APIError as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+    if not rows:
+        raise HTTPException(status_code=404, detail="Review not found.")
+    if str(rows[0].get("reviewer_id")) != str(user_id):
+        raise HTTPException(status_code=403, detail="You can only delete your own review.")
+
+    try:
+        supabase_admin_client.table("teacher_reviews").delete().eq("id", review_id).eq("reviewer_id", user_id).execute()
+    except APIError as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e

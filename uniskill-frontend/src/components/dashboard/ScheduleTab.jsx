@@ -71,6 +71,16 @@ function parseDateTimeLocal(dateStr, timeStr) {
   return dt;
 }
 
+/** Local HH:mm for `<input type="time" min=…>` and comparisons. */
+function localTimeHHMM(d = new Date()) {
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+
+/** Match the browser’s 12-hour time picker: show end times and summaries in 12h with am/pm. */
+function formatTime12h(date) {
+  return date.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit", hour12: true });
+}
+
 export default function ScheduleTab() {
   const today = useMemo(() => startOfDay(new Date()), []);
   const [monthCursor, setMonthCursor] = useState(() => startOfMonth(new Date()));
@@ -116,6 +126,25 @@ export default function ScheduleTab() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  const calendarMinDate = dateKey(new Date());
+  const isFormDateToday = meetingDate === calendarMinDate;
+
+  useEffect(() => {
+    if (meetingDate < calendarMinDate) {
+      setMeetingDate(calendarMinDate);
+    }
+  }, [meetingDate, calendarMinDate]);
+
+  useEffect(() => {
+    if (!isFormDateToday) {
+      return;
+    }
+    const minT = localTimeHHMM();
+    if (startTime < minT) {
+      setStartTime(minT);
+    }
+  }, [isFormDateToday, startTime]);
 
   const calendarDays = useMemo(() => {
     const arr = [];
@@ -199,6 +228,13 @@ export default function ScheduleTab() {
     }) || null;
   }, [computedWindow, meetings]);
 
+  const pastStart = useMemo(() => {
+    if (!computedWindow) {
+      return false;
+    }
+    return computedWindow.starts.getTime() <= Date.now();
+  }, [computedWindow]);
+
   async function handleSchedule(e) {
     e.preventDefault();
     setError("");
@@ -212,6 +248,10 @@ export default function ScheduleTab() {
       return;
     }
     const { starts, ends } = computedWindow;
+    if (starts.getTime() <= Date.now()) {
+      setError("Pick a date and start time in the future.");
+      return;
+    }
     setSaving(true);
     try {
       await createMeeting({
@@ -227,7 +267,7 @@ export default function ScheduleTab() {
           weekday: "short",
           month: "short",
           day: "numeric",
-        })} at ${starts.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}.`,
+        })} at ${formatTime12h(starts)}.`,
       );
       await load();
     } catch (err) {
@@ -253,10 +293,7 @@ export default function ScheduleTab() {
   function formatMeetingTime(mt) {
     const s = new Date(mt.starts_at);
     const e = new Date(mt.ends_at);
-    return `${s.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })} – ${e.toLocaleTimeString([], {
-      hour: "numeric",
-      minute: "2-digit",
-    })}`;
+    return `${formatTime12h(s)} – ${formatTime12h(e)}`;
   }
 
   return (
@@ -264,8 +301,8 @@ export default function ScheduleTab() {
       <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <div className="flex items-center gap-2 text-emerald-400/90">
-            <CalendarIcon className="h-5 w-5" />
-            <span className="text-xs font-bold uppercase tracking-wider">Schedule</span>
+            <CalendarIcon className="h-5 w-5 sm:h-6 sm:w-6" />
+            <span className="text-sm font-bold uppercase tracking-wider sm:text-base">Schedule</span>
           </div>
           <h2 className="mt-1 text-2xl font-bold text-white">Meetings with connections</h2>
           <p className="mt-1 text-sm text-slate-400">
@@ -511,6 +548,7 @@ export default function ScheduleTab() {
                   <input
                     type="date"
                     value={meetingDate}
+                    min={calendarMinDate}
                     onChange={(e) => setMeetingDate(e.target.value)}
                     className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
                     required
@@ -521,6 +559,7 @@ export default function ScheduleTab() {
                   <input
                     type="time"
                     value={startTime}
+                    min={isFormDateToday ? localTimeHHMM() : undefined}
                     onChange={(e) => setStartTime(e.target.value)}
                     className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
                     required
@@ -544,13 +583,15 @@ export default function ScheduleTab() {
               {computedWindow ? (
                 <p className="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600">
                   Ends at{" "}
-                  <span className="font-semibold text-slate-700">
-                    {computedWindow.ends.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                  </span>
+                  <span className="font-semibold text-slate-700">{formatTime12h(computedWindow.ends)}</span>
                 </p>
               ) : null}
 
-              {myConflict ? (
+              {pastStart ? (
+                <p className="rounded-lg border border-red-300/60 bg-red-50 px-3 py-2 text-xs text-red-900">
+                  Start time must be after the current date and time. Choose today with a later time, or a future date.
+                </p>
+              ) : myConflict ? (
                 <p className="rounded-lg border border-amber-300/60 bg-amber-50 px-3 py-2 text-xs text-amber-800">
                   Conflict: You already have “{myConflict.title || "Meeting"}” at {formatMeetingTime(myConflict)}.
                 </p>
@@ -582,7 +623,14 @@ export default function ScheduleTab() {
                 </button>
                 <button
                   type="submit"
-                  disabled={saving || !participantId || !meetingDate || !startTime || !!myConflict}
+                  disabled={
+                    saving ||
+                    !participantId ||
+                    !meetingDate ||
+                    !startTime ||
+                    pastStart ||
+                    !!myConflict
+                  }
                   className="rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 px-4 py-2.5 text-sm font-semibold text-white shadow disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {saving ? "Scheduling…" : "Schedule meeting"}
