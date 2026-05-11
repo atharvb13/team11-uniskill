@@ -129,6 +129,12 @@ def create_meeting(body: CreateMeetingBody, user_id: str = Depends(get_current_u
     ends = _parse_iso(body.ends_at)
     if ends <= starts:
         raise HTTPException(status_code=400, detail="ends_at must be after starts_at.")
+    now = datetime.now(timezone.utc)
+    if starts <= now:
+        raise HTTPException(
+            status_code=400,
+            detail="Start time must be in the future (use your local date and time).",
+        )
     _assert_connected(user_id, body.participant_id)
 
     title = (body.title or "Meeting").strip() or "Meeting"

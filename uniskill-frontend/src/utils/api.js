@@ -169,6 +169,11 @@ export async function upsertTeachingReview(payload) {
   });
 }
 
+/** @param {string} reviewId — UUID of your review row */
+export async function deleteTeachingReview(reviewId) {
+  return authRequest(`/api/reviews/${encodeURIComponent(reviewId)}`, { method: "DELETE" });
+}
+
 /** @returns {Promise<object[]>} Other users with teach/learn skills */
 export async function discoverProfiles() {
   return authRequest("/api/profile/discover", { method: "GET" });

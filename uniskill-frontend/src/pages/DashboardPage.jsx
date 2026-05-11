@@ -158,15 +158,15 @@ export default function DashboardPage() {
           className="mb-12 flex items-center justify-between"
         >
           {/* Logo */}
-          <div className="flex shrink-0 items-center gap-2.5">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-emerald-400 to-teal-600 shadow-md shadow-emerald-900/40">
-              <Sparkles className="h-[15px] w-[15px] text-white" />
+          <div className="flex shrink-0 items-center gap-3">
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-emerald-400 to-teal-600 shadow-md shadow-emerald-900/40">
+              <Sparkles className="h-4 w-4 text-white" />
             </div>
-            <span className="text-[15px] font-bold tracking-tight text-white">UniSkill</span>
+            <span className="text-lg font-bold tracking-tight text-white sm:text-xl">UniSkill</span>
           </div>
 
           {/* Center nav — icon + label pairs, clearly visible */}
-          <nav className="flex items-center gap-8" aria-label="Dashboard navigation">
+          <nav className="flex items-center gap-9 sm:gap-10" aria-label="Dashboard navigation">
             {TABS.map(({ id, label, icon: Icon }) => {
               const isActive = activeTab === id;
               const showBadge = id === "chat" && pendingCount > 0 && !isActive;
@@ -176,7 +176,7 @@ export default function DashboardPage() {
                   type="button"
                   onClick={() => handleTabChange(id)}
                   aria-current={isActive ? "page" : undefined}
-                  className={`relative flex items-center gap-1.5 text-[13px] font-medium transition-colors duration-150 ${
+                  className={`relative flex items-center gap-2 text-base font-medium transition-colors duration-150 sm:text-[17px] ${
                     isActive
                       ? "text-white"
                       : "text-slate-400 hover:text-white"
@@ -184,13 +184,13 @@ export default function DashboardPage() {
                 >
                   <span className="relative">
                     <Icon
-                      className={`h-[14px] w-[14px] transition-colors duration-150 ${
+                      className={`h-[17px] w-[17px] transition-colors duration-150 sm:h-[18px] sm:w-[18px] ${
                         isActive ? "text-emerald-400" : "text-slate-500"
                       }`}
                       strokeWidth={2.2}
                     />
                     {showBadge && (
-                      <span className="absolute -right-1.5 -top-1.5 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-red-500 text-[9px] font-bold text-white">
+                      <span className="absolute -right-1.5 -top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[10px] font-bold text-white">
                         {pendingCount > 9 ? "9+" : pendingCount}
                       </span>
                     )}
@@ -199,7 +199,7 @@ export default function DashboardPage() {
                   {isActive && (
                     <motion.span
                       layoutId="nav-dot"
-                      className="ml-0.5 h-1 w-1 rounded-full bg-emerald-400"
+                      className="ml-0.5 h-1.5 w-1.5 rounded-full bg-emerald-400"
                       transition={{ type: "spring", stiffness: 500, damping: 40 }}
                     />
                   )}
@@ -212,9 +212,9 @@ export default function DashboardPage() {
           <button
             type="button"
             onClick={handleLogout}
-            className="inline-flex shrink-0 items-center gap-1.5 rounded-xl border border-white/10 bg-white/5 px-3.5 py-2 text-[13px] font-medium text-slate-300 backdrop-blur-sm transition hover:bg-white/10 hover:text-white"
+            className="inline-flex shrink-0 items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-base font-medium text-slate-300 backdrop-blur-sm transition hover:bg-white/10 hover:text-white sm:text-[17px]"
           >
-            <LogOut className="h-3.5 w-3.5" />
+            <LogOut className="h-4 w-4 sm:h-[18px] sm:w-[18px]" />
             Log out
           </button>
         </motion.header>
