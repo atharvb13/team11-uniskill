@@ -1,23 +1,33 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import {
   BookOpen,
+  FileText,
   GraduationCap,
+  ImageIcon,
   Loader2,
+  Paperclip,
   Pencil,
   Plus,
+  RefreshCw,
   Sparkles,
   Target,
   Trash2,
   User,
+  Video,
   X,
 } from "lucide-react";
 import {
   addMySkill,
+  addWorkSample,
+  deleteWorkSample,
+  getWorkSamples,
   removeMySkill,
   updateMyProfile,
   updateMySkill,
 } from "../../utils/api";
+import { supabase } from "../../lib/supabaseClient";
+import { getAccessToken, getRefreshToken } from "../../utils/session";
 import { LEARN_TARGET_LEVEL_OPTIONS, TEACH_PROFICIENCY_OPTIONS } from "./skillConstants";
 
 function skillName(row) {
@@ -75,6 +85,16 @@ export default function DashboardBody({ profile, skills, onRefresh }) {
     proficiency_level: "beginner",
   });
   const [learnForm, setLearnForm] = useState({ skill_name: "", proficiency_level: "beginner" });
+
+  // Work samples state
+  const [pendingFiles, setPendingFiles] = useState([]);        // files queued for upload
+  const [existingSamples, setExistingSamples] = useState([]);  // loaded from DB for edit modal
+  const [samplesLoading, setSamplesLoading] = useState(false);
+  const [samplesError, setSamplesError] = useState("");
+  const [uploadingFiles, setUploadingFiles] = useState(false);
+  const fileInputRef = useRef(null);
+  const replaceInputRef = useRef(null);
+  const [replacingId, setReplacingId] = useState(null); // sample ID being replaced
 
   useEffect(() => {
     if (!profile) {
@@ -165,7 +185,63 @@ export default function DashboardBody({ profile, skills, onRefresh }) {
     setSkillError("");
     setTeachForm({ skill_name: "", proficiency_level: "beginner" });
     setLearnForm({ skill_name: "", proficiency_level: "beginner" });
+    setPendingFiles([]);
+    setExistingSamples([]);
+    setSamplesError("");
+    setReplacingId(null);
   }, []);
+
+  // Upload a single file to Supabase Storage and return its public URL
+  async function uploadWorkSampleFile(file, userId) {
+    if (!supabase) throw new Error("Supabase client not available.");
+    const accessToken = getAccessToken();
+    const refreshToken = getRefreshToken();
+    if (accessToken) {
+      await supabase.auth.setSession({
+        access_token: accessToken,
+        refresh_token: refreshToken || "",
+      });
+    }
+    const ext = file.name.split(".").pop();
+    const typeFolder = file.type.startsWith("video/")
+      ? "videos"
+      : file.type === "application/pdf"
+        ? "pdfs"
+        : "images";
+    const path = `${userId}/${typeFolder}/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
+    const { error: uploadErr } = await supabase.storage
+      .from("work-samples")
+      .upload(path, file, { cacheControl: "3600", upsert: false });
+    if (uploadErr) throw new Error(uploadErr.message);
+    const { data: urlData } = supabase.storage.from("work-samples").getPublicUrl(path);
+    return urlData.publicUrl;
+  }
+
+  function resolveFileType(file) {
+    if (file.type === "application/pdf") return "pdf";
+    if (file.type.startsWith("video/")) return "video";
+    return "image";
+  }
+
+  // Upload all pending files for a given user_skill_id
+  async function flushPendingFiles(userSkillId) {
+    if (!pendingFiles.length || !profile?.id) return;
+    setUploadingFiles(true);
+    try {
+      for (const file of pendingFiles) {
+        const url = await uploadWorkSampleFile(file, profile.id);
+        await addWorkSample({
+          user_skill_id: userSkillId,
+          file_url: url,
+          file_type: resolveFileType(file),
+          file_name: file.name,
+          file_size: file.size,
+        });
+      }
+    } finally {
+      setUploadingFiles(false);
+    }
+  }
 
   const submitTeach = useCallback(async () => {
     setSkillError("");
@@ -175,12 +251,16 @@ export default function DashboardBody({ profile, skills, onRefresh }) {
     }
     setSkillSaving(true);
     try {
-      await addMySkill({
+      const result = await addMySkill({
         skill_name: teachForm.skill_name.trim(),
         can_teach: true,
         wants_to_learn: false,
         proficiency_level: teachForm.proficiency_level,
       });
+      const userSkillId = result?.user_skill?.id;
+      if (userSkillId) {
+        await flushPendingFiles(userSkillId);
+      }
       closeModal();
       await onRefresh();
     } catch (e) {
@@ -188,7 +268,7 @@ export default function DashboardBody({ profile, skills, onRefresh }) {
     } finally {
       setSkillSaving(false);
     }
-  }, [closeModal, onRefresh, teachForm]);
+  }, [closeModal, onRefresh, teachForm, pendingFiles, profile]);
 
   const submitLearn = useCallback(async () => {
     setSkillError("");
@@ -230,11 +310,22 @@ export default function DashboardBody({ profile, skills, onRefresh }) {
 
   const openEditTeach = useCallback((row) => {
     setSkillError("");
+    setPendingFiles([]);
+    setExistingSamples([]);
+    setSamplesError("");
     setTeachForm({
       skill_name: skillName(row),
       proficiency_level: row.proficiency_level || "beginner",
     });
-    setModal({ type: "edit-teach", skill_id: row.skill_id });
+    setModal({ type: "edit-teach", skill_id: row.skill_id, user_skill_id: row.id });
+    // Load existing work samples for this skill
+    if (row.id) {
+      setSamplesLoading(true);
+      getWorkSamples(row.id)
+        .then((samples) => setExistingSamples(samples || []))
+        .catch(() => setSamplesError("Could not load work samples."))
+        .finally(() => setSamplesLoading(false));
+    }
   }, []);
 
   const openEditLearn = useCallback((row) => {
@@ -244,6 +335,23 @@ export default function DashboardBody({ profile, skills, onRefresh }) {
       proficiency_level: row.proficiency_level || "beginner",
     });
     setModal({ type: "edit-learn", skill_id: row.skill_id });
+  }, []);
+
+  const openWorkSamplesManager = useCallback((row) => {
+    const userSkillId = row.id;
+    const name = skillName(row);
+    setPendingFiles([]);
+    setExistingSamples([]);
+    setSamplesError("");
+    setReplacingId(null);
+    setModal({ type: "work-samples", user_skill_id: userSkillId, skill_name: name });
+    if (userSkillId) {
+      setSamplesLoading(true);
+      getWorkSamples(userSkillId)
+        .then((samples) => setExistingSamples(samples || []))
+        .catch(() => setSamplesError("Could not load work samples."))
+        .finally(() => setSamplesLoading(false));
+    }
   }, []);
 
   const submitEditTeach = useCallback(async () => {
@@ -256,6 +364,9 @@ export default function DashboardBody({ profile, skills, onRefresh }) {
       await updateMySkill(modal.skill_id, {
         proficiency_level: teachForm.proficiency_level,
       });
+      if (modal.user_skill_id) {
+        await flushPendingFiles(modal.user_skill_id);
+      }
       closeModal();
       await onRefresh();
     } catch (e) {
@@ -263,7 +374,7 @@ export default function DashboardBody({ profile, skills, onRefresh }) {
     } finally {
       setSkillSaving(false);
     }
-  }, [closeModal, modal, onRefresh, teachForm]);
+  }, [closeModal, modal, onRefresh, teachForm, pendingFiles, profile]);
 
   const submitEditLearn = useCallback(async () => {
     if (!modal?.skill_id) {
@@ -690,6 +801,14 @@ export default function DashboardBody({ profile, skills, onRefresh }) {
                       <div className="flex shrink-0 gap-0.5">
                         <button
                           type="button"
+                          onClick={() => openWorkSamplesManager(row)}
+                          className="rounded-xl border border-transparent p-2.5 text-slate-500 transition hover:border-emerald-100 hover:bg-emerald-50 hover:text-emerald-700"
+                          aria-label={`Manage work samples for ${skillName(row)}`}
+                        >
+                          <Paperclip className="h-4 w-4" />
+                        </button>
+                        <button
+                          type="button"
                           onClick={() => openEditTeach(row)}
                           className="rounded-xl border border-transparent p-2.5 text-slate-500 transition hover:border-slate-200 hover:bg-white hover:text-slate-800"
                           aria-label={`Edit ${skillName(row)}`}
@@ -741,6 +860,7 @@ export default function DashboardBody({ profile, skills, onRefresh }) {
                 {modal.type === "learn" && "Add a skill to learn"}
                 {modal.type === "edit-teach" && "Edit teaching skill"}
                 {modal.type === "edit-learn" && "Edit learning goal level"}
+                {modal.type === "work-samples" && `Work samples — ${modal.skill_name}`}
               </h4>
               <button type="button" onClick={closeModal} className="rounded-lg p-2 text-slate-400 hover:bg-slate-100">
                 <X className="h-5 w-5" />
@@ -800,13 +920,106 @@ export default function DashboardBody({ profile, skills, onRefresh }) {
                     })}
                   </div>
                 </div>
+                {/* Work samples upload section */}
+                <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50/50 p-4">
+                  <div className="mb-2 flex items-center gap-2">
+                    <Paperclip className="h-4 w-4 text-slate-500" />
+                    <p className="text-sm font-medium text-slate-700">Work samples <span className="font-normal text-slate-500">(optional)</span></p>
+                  </div>
+                  <p className="mb-3 text-xs leading-relaxed text-slate-500">
+                    Upload PDFs, videos, or images that demonstrate your skill. Visitors can view these on your profile.
+                  </p>
+
+                  {/* Existing samples (edit modal) */}
+                  {modal.type === "edit-teach" && (
+                    <div className="mb-3">
+                      {samplesLoading ? (
+                        <p className="text-xs text-slate-500">Loading samples…</p>
+                      ) : samplesError ? (
+                        <p className="text-xs text-red-500">{samplesError}</p>
+                      ) : existingSamples.length > 0 ? (
+                        <ul className="space-y-1.5">
+                          {existingSamples.map((s) => (
+                            <li key={s.id} className="flex items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs">
+                              <span className="flex min-w-0 items-center gap-1.5 truncate text-slate-700">
+                                {s.file_type === "pdf" ? <FileText className="h-3.5 w-3.5 shrink-0 text-red-500" /> : s.file_type === "video" ? <Video className="h-3.5 w-3.5 shrink-0 text-blue-500" /> : <ImageIcon className="h-3.5 w-3.5 shrink-0 text-emerald-500" />}
+                                <span className="truncate">{s.file_name || s.file_url.split("/").pop()}</span>
+                              </span>
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  try {
+                                    await deleteWorkSample(s.id);
+                                    setExistingSamples((prev) => prev.filter((x) => x.id !== s.id));
+                                  } catch {
+                                    setSamplesError("Could not delete sample.");
+                                  }
+                                }}
+                                className="shrink-0 rounded-lg p-1 text-slate-400 hover:bg-red-50 hover:text-red-500"
+                                aria-label="Delete sample"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <p className="text-xs text-slate-400">No samples uploaded yet.</p>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Queued new files */}
+                  {pendingFiles.length > 0 && (
+                    <ul className="mb-2 space-y-1.5">
+                      {pendingFiles.map((f, idx) => (
+                        <li key={idx} className="flex items-center justify-between gap-2 rounded-xl border border-emerald-200 bg-emerald-50/50 px-3 py-2 text-xs">
+                          <span className="flex min-w-0 items-center gap-1.5 truncate text-slate-700">
+                            {f.type === "application/pdf" ? <FileText className="h-3.5 w-3.5 shrink-0 text-red-500" /> : f.type.startsWith("video/") ? <Video className="h-3.5 w-3.5 shrink-0 text-blue-500" /> : <ImageIcon className="h-3.5 w-3.5 shrink-0 text-emerald-500" />}
+                            <span className="truncate">{f.name}</span>
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setPendingFiles((prev) => prev.filter((_, i) => i !== idx))}
+                            className="shrink-0 rounded-lg p-1 text-slate-400 hover:bg-red-50 hover:text-red-500"
+                            aria-label="Remove queued file"
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="application/pdf,video/*,image/*"
+                    multiple
+                    className="hidden"
+                    onChange={(e) => {
+                      const files = Array.from(e.target.files || []);
+                      setPendingFiles((prev) => [...prev, ...files]);
+                      e.target.value = "";
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="inline-flex items-center gap-1.5 rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700 shadow-sm transition hover:bg-slate-50"
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                    Add file
+                  </button>
+                </div>
+
                 <button
                   type="button"
-                  disabled={skillSaving}
+                  disabled={skillSaving || uploadingFiles}
                   onClick={() => void (modal.type === "teach" ? submitTeach() : submitEditTeach())}
                   className="mt-2 w-full rounded-xl bg-slate-900 py-3 text-sm font-semibold text-white disabled:opacity-50"
                 >
-                  {skillSaving ? "Saving…" : modal.type === "teach" ? "Add skill" : "Save changes"}
+                  {skillSaving || uploadingFiles ? "Saving…" : modal.type === "teach" ? "Add skill" : "Save changes"}
                 </button>
               </div>
             )}
@@ -908,6 +1121,184 @@ export default function DashboardBody({ profile, skills, onRefresh }) {
                 >
                   {skillSaving ? "Saving…" : "Save"}
                 </button>
+              </div>
+            )}
+
+            {/* ── Work Samples Manager ── */}
+            {modal.type === "work-samples" && (
+              <div className="mt-4 space-y-4">
+                <p className="text-sm leading-relaxed text-slate-500">
+                  Upload PDFs, videos, or images that showcase your work for this skill. Visitors can view these on your public profile.
+                </p>
+
+                {/* Hidden inputs */}
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="application/pdf,video/*,image/*"
+                  multiple
+                  className="hidden"
+                  onChange={(e) => {
+                    const files = Array.from(e.target.files || []);
+                    setPendingFiles((prev) => [...prev, ...files]);
+                    e.target.value = "";
+                  }}
+                />
+                <input
+                  ref={replaceInputRef}
+                  type="file"
+                  accept="application/pdf,video/*,image/*"
+                  className="hidden"
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0];
+                    e.target.value = "";
+                    if (!file || !replacingId || !modal.user_skill_id || !profile?.id) return;
+                    setSamplesLoading(true);
+                    setSamplesError("");
+                    try {
+                      await deleteWorkSample(replacingId);
+                      const url = await uploadWorkSampleFile(file, profile.id);
+                      await addWorkSample({
+                        user_skill_id: modal.user_skill_id,
+                        file_url: url,
+                        file_type: resolveFileType(file),
+                        file_name: file.name,
+                        file_size: file.size,
+                      });
+                      const updated = await getWorkSamples(modal.user_skill_id);
+                      setExistingSamples(updated || []);
+                    } catch {
+                      setSamplesError("Could not replace the sample.");
+                    } finally {
+                      setSamplesLoading(false);
+                      setReplacingId(null);
+                    }
+                  }}
+                />
+
+                {/* Existing samples */}
+                {samplesLoading ? (
+                  <div className="flex items-center justify-center py-6">
+                    <Loader2 className="h-6 w-6 animate-spin text-emerald-500" />
+                  </div>
+                ) : samplesError ? (
+                  <p className="text-sm text-red-500">{samplesError}</p>
+                ) : existingSamples.length === 0 ? (
+                  <div className="rounded-2xl border-2 border-dashed border-slate-200 bg-slate-50/50 px-4 py-8 text-center">
+                    <Paperclip className="mx-auto h-8 w-8 text-slate-300" strokeWidth={1.5} />
+                    <p className="mt-2 text-sm text-slate-500">No samples uploaded yet.</p>
+                  </div>
+                ) : (
+                  <ul className="space-y-2">
+                    {existingSamples.map((s) => {
+                      const fileName = s.file_name || s.file_url.split("/").pop();
+                      return (
+                        <li
+                          key={s.id}
+                          className="flex items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2.5 shadow-sm"
+                        >
+                          <span className="flex min-w-0 items-center gap-2 text-sm text-slate-700">
+                            {s.file_type === "pdf"
+                              ? <FileText className="h-4 w-4 shrink-0 text-red-500" />
+                              : s.file_type === "video"
+                                ? <Video className="h-4 w-4 shrink-0 text-blue-500" />
+                                : <ImageIcon className="h-4 w-4 shrink-0 text-emerald-500" />}
+                            <span className="truncate font-medium">{fileName}</span>
+                          </span>
+                          <div className="flex shrink-0 gap-1">
+                            <button
+                              type="button"
+                              title="Replace with a new file"
+                              onClick={() => {
+                                setReplacingId(s.id);
+                                replaceInputRef.current?.click();
+                              }}
+                              className="rounded-lg border border-slate-200 bg-slate-50 p-1.5 text-slate-500 transition hover:bg-blue-50 hover:text-blue-600"
+                            >
+                              <RefreshCw className="h-3.5 w-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              title="Delete sample"
+                              onClick={async () => {
+                                if (!window.confirm("Delete this work sample?")) return;
+                                setSamplesLoading(true);
+                                try {
+                                  await deleteWorkSample(s.id);
+                                  setExistingSamples((prev) => prev.filter((x) => x.id !== s.id));
+                                } catch {
+                                  setSamplesError("Could not delete sample.");
+                                } finally {
+                                  setSamplesLoading(false);
+                                }
+                              }}
+                              className="rounded-lg border border-slate-200 bg-slate-50 p-1.5 text-slate-500 transition hover:bg-red-50 hover:text-red-600"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+
+                {/* Queued new files */}
+                {pendingFiles.length > 0 && (
+                  <div>
+                    <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Queued to upload</p>
+                    <ul className="space-y-1.5">
+                      {pendingFiles.map((f, idx) => (
+                        <li key={idx} className="flex items-center justify-between gap-2 rounded-xl border border-emerald-200 bg-emerald-50/50 px-3 py-2 text-xs">
+                          <span className="flex min-w-0 items-center gap-1.5 truncate text-slate-700">
+                            {f.type === "application/pdf"
+                              ? <FileText className="h-3.5 w-3.5 shrink-0 text-red-500" />
+                              : f.type.startsWith("video/")
+                                ? <Video className="h-3.5 w-3.5 shrink-0 text-blue-500" />
+                                : <ImageIcon className="h-3.5 w-3.5 shrink-0 text-emerald-500" />}
+                            <span className="truncate">{f.name}</span>
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setPendingFiles((prev) => prev.filter((_, i) => i !== idx))}
+                            className="shrink-0 rounded-lg p-1 text-slate-400 hover:bg-red-50 hover:text-red-500"
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="inline-flex items-center gap-1.5 rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700 shadow-sm transition hover:bg-slate-50"
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                    Add file
+                  </button>
+                  {pendingFiles.length > 0 && (
+                    <button
+                      type="button"
+                      disabled={uploadingFiles}
+                      onClick={async () => {
+                        if (!modal.user_skill_id) return;
+                        setSamplesError("");
+                        await flushPendingFiles(modal.user_skill_id);
+                        const updated = await getWorkSamples(modal.user_skill_id);
+                        setExistingSamples(updated || []);
+                        setPendingFiles([]);
+                      }}
+                      className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 px-3 py-2 text-xs font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-50"
+                    >
+                      {uploadingFiles ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+                      Upload {pendingFiles.length} file{pendingFiles.length !== 1 ? "s" : ""}
+                    </button>
+                  )}
+                </div>
               </div>
             )}
           </div>

@@ -153,6 +153,32 @@ export async function getPublicProfile(username) {
   return authRequest(`/api/profile/${encodeURIComponent(username)}`, { method: "GET" });
 }
 
+// ─── Work Samples ─────────────────────────────────────────────────────────────
+
+/**
+ * Save work sample metadata after the file has been uploaded to Supabase Storage.
+ * @param {{ user_skill_id: string, file_url: string, file_type: string, file_name?: string, file_size?: number }} payload
+ */
+export async function addWorkSample(payload) {
+  return authRequest("/api/work-samples", { method: "POST", body: payload });
+}
+
+/**
+ * Get all work samples for a given user_skill_id (public).
+ * @param {string} userSkillId
+ */
+export async function getWorkSamples(userSkillId) {
+  return authRequest(`/api/work-samples/${encodeURIComponent(userSkillId)}`, { method: "GET" });
+}
+
+/**
+ * Delete a work sample by its ID.
+ * @param {string} sampleId
+ */
+export async function deleteWorkSample(sampleId) {
+  return authRequest(`/api/work-samples/${encodeURIComponent(sampleId)}`, { method: "DELETE" });
+}
+
 /**
  * Star rating + text for a member who teaches at least one skill (upsert per viewer).
  * @param {{ teacherUsername: string, rating: number, body: string }} payload
@@ -226,6 +252,15 @@ export async function listCatalogSkills() {
 }
 
 // ─── Connections ──────────────────────────────────────────────────────────────
+
+/**
+ * Check the connection status between the current user and another user.
+ * @param {string} targetUserId
+ * @returns {Promise<{ status: 'none'|'pending'|'accepted'|'self', connection_id: string|null, i_am_requester: boolean }>}
+ */
+export async function getConnectionStatus(targetUserId) {
+  return authRequest(`/api/connections/status/${encodeURIComponent(targetUserId)}`, { method: "GET" });
+}
 
 /** Send a connection request to another user */
 export async function sendConnectionRequest(receiverId) {
