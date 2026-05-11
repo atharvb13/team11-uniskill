@@ -1,4 +1,5 @@
 from app.utils.validation import (
+    is_umass_email,
     normalize_email,
     validate_login_input,
     validate_password,
@@ -8,6 +9,12 @@ from app.utils.validation import (
 
 def test_normalize_email_trims_and_lowercases() -> None:
     assert normalize_email("  Student@UMASS.EDU  ") == "student@umass.edu"
+
+
+def test_is_umass_email_accepts_only_umass_domain() -> None:
+    assert is_umass_email(" student@UMASS.EDU ") is True
+    assert is_umass_email("student@cs.umass.edu") is False
+    assert is_umass_email("student@gmail.com") is False
 
 
 def test_validate_password_requires_all_rules() -> None:
