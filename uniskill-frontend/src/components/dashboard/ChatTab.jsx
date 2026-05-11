@@ -1,8 +1,10 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
 import {
   Check,
   FileText,
+  Lock,
   Loader2,
   MessageSquare,
   Paperclip,
@@ -17,10 +19,21 @@ import {
   getMessagePreviews,
   getMyConnections,
   getPendingRequests,
+  getUserPublicKey,
   markMessagesRead,
   rejectConnection,
   sendMessage,
+  uploadMyPublicKey,
 } from "../../utils/api";
+import {
+  decryptMessage,
+  deriveSharedKey,
+  exportPublicKeyB64,
+  getOrCreateKeyPair,
+  importPublicKeyB64,
+  isEncryptedContent,
+  encryptMessage,
+} from "../../utils/e2eEncryption";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -66,6 +79,8 @@ function previewText(preview) {
   if (attachment_type === "image") return "📷 Image";
   if (attachment_type === "video") return "🎥 Video";
   if (attachment_type === "file") return `📎 ${attachment_name || "File"}`;
+  // Show a lock indicator instead of the raw encrypted blob
+  if (typeof content === "string" && content.startsWith("e2e:")) return "🔒 Encrypted message";
   return content || "";
 }
 
@@ -188,12 +203,91 @@ export default function ChatTab({ myId }) {
   const [uploadProgress, setUploadProgress] = useState(false);
   const [error, setError] = useState("");
 
+  // ── E2E state ───────────────────────────────────────────────────────────────
+  // e2eRef: { keyPair, sharedKeyCache: Map<userId, CryptoKey>, pubKeyCache: Map<userId, string> }
+  const e2eRef = useRef(null);
+  const [e2ePartnerReady, setE2ePartnerReady] = useState(false);
+
   const messagesEndRef = useRef(null);
   const channelRef = useRef(null);
   const selectedUserRef = useRef(null);
   const fileInputRef = useRef(null);
 
   useEffect(() => { selectedUserRef.current = selectedUser; }, [selectedUser]);
+
+  // ── E2E initialisation ──────────────────────────────────────────────────────
+  // Runs once when myId is available. Loads (or generates) the local ECDH key
+  // pair and uploads the public key to the server so partners can encrypt to us.
+  useEffect(() => {
+    if (!myId) return;
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const { keyPair } = await getOrCreateKeyPair();
+        if (cancelled) return;
+
+        e2eRef.current = {
+          keyPair,
+          sharedKeyCache: new Map(), // userId → AES-GCM CryptoKey (session cache)
+          pubKeyCache:    new Map(), // userId → base64 SPKI string
+        };
+
+        // Upsert our public key — idempotent, keeps server in sync with localStorage.
+        const pubB64 = await exportPublicKeyB64(keyPair.publicKey);
+        if (!cancelled) await uploadMyPublicKey(pubB64).catch(() => {});
+      } catch {
+        // SubtleCrypto unavailable (e.g. non-secure context).
+        // Chat keeps working in plaintext.
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [myId]);
+
+  // ── Shared-key helper ───────────────────────────────────────────────────────
+  // Returns the cached (or freshly derived) AES-GCM shared key for a partner.
+  // Returns null when the partner has not yet uploaded a public key.
+  const getSharedKeyForUser = useCallback(async (userId) => {
+    if (!e2eRef.current) return null;
+    const { keyPair, sharedKeyCache, pubKeyCache } = e2eRef.current;
+
+    if (sharedKeyCache.has(userId)) return sharedKeyCache.get(userId);
+
+    let theirPubB64 = pubKeyCache.get(userId);
+    if (!theirPubB64) {
+      theirPubB64 = await getUserPublicKey(userId).catch(() => null);
+      if (!theirPubB64) return null; // partner hasn't uploaded a key yet
+      pubKeyCache.set(userId, theirPubB64);
+    }
+
+    try {
+      const theirKey  = await importPublicKeyB64(theirPubB64);
+      const sharedKey = await deriveSharedKey(keyPair.privateKey, theirKey);
+      sharedKeyCache.set(userId, sharedKey);
+      return sharedKey;
+    } catch {
+      return null;
+    }
+  }, []);
+
+  // ── Batch-decrypt helper ────────────────────────────────────────────────────
+  // Decrypts every message in the array that carries an e2e: payload.
+  // Plain-text messages pass through unchanged.
+  const decryptMsgList = useCallback(async (msgs, partnerId) => {
+    const sharedKey = await getSharedKeyForUser(partnerId);
+    if (!sharedKey) return msgs;
+
+    return Promise.all(msgs.map(async (m) => {
+      if (!isEncryptedContent(m.content)) return m;
+      try {
+        const plain = await decryptMessage(sharedKey, m.content);
+        return { ...m, content: plain };
+      } catch {
+        return { ...m, content: "[Encrypted message]" };
+      }
+    }));
+  }, [getSharedKeyForUser]);
 
   // Sort connections by most-recent message
   useEffect(() => {
@@ -240,21 +334,37 @@ export default function ChatTab({ myId }) {
 
     const channel = supabase
       .channel(`messages-inbox-${myId}`)
-      .on("postgres_changes",
+      .on(
+        "postgres_changes",
         { event: "INSERT", schema: "public", table: "messages", filter: `receiver_id=eq.${myId}` },
-        (payload) => {
-          const newMsg = payload.new;
-          const senderId = newMsg.sender_id;
+        async (payload) => {
+          const newMsg       = payload.new;
+          const senderId     = newMsg.sender_id;
           const isActiveChat = selectedUserRef.current?.id === senderId;
+
+          // Decrypt incoming message if it carries an E2E payload
+          let displayContent = newMsg.content;
+          if (isEncryptedContent(displayContent)) {
+            // Prefer the already-cached shared key; derive on the fly if needed
+            const sharedKey =
+              e2eRef.current?.sharedKeyCache?.get(senderId) ??
+              (await getSharedKeyForUser(senderId).catch(() => null));
+            if (sharedKey) {
+              try { displayContent = await decryptMessage(sharedKey, displayContent); }
+              catch { displayContent = "[Encrypted message]"; }
+            } else {
+              displayContent = "[Encrypted message]";
+            }
+          }
 
           setPreviews((prev) => ({
             ...prev,
             [senderId]: {
               ...(prev[senderId] || { other_user_id: senderId, unread_count: 0 }),
               last_message: {
-                content: newMsg.content,
-                created_at: newMsg.created_at,
-                sender_id: senderId,
+                content:         displayContent,
+                created_at:      newMsg.created_at,
+                sender_id:       senderId,
                 attachment_type: newMsg.attachment_type,
                 attachment_name: newMsg.attachment_name,
               },
@@ -262,7 +372,9 @@ export default function ChatTab({ myId }) {
             },
           }));
 
-          if (isActiveChat) setMessages((prev) => [...prev, newMsg]);
+          if (isActiveChat) {
+            setMessages((prev) => [...prev, { ...newMsg, content: displayContent }]);
+          }
         }
       )
       .subscribe();
@@ -274,7 +386,7 @@ export default function ChatTab({ myId }) {
         channelRef.current = null;
       }
     };
-  }, [myId]);
+  }, [myId, getSharedKeyForUser]);
 
   // Auto-scroll
   useEffect(() => {
@@ -287,6 +399,7 @@ export default function ChatTab({ myId }) {
     setMessages([]);
     setMsgLoading(true);
     setError("");
+    setE2ePartnerReady(false);
     setPreviews((prev) => ({
       ...prev,
       [user.id]: { ...(prev[user.id] || {}), unread_count: 0 },
@@ -296,13 +409,20 @@ export default function ChatTab({ myId }) {
         getMessages(user.id),
         markMessagesRead(user.id).catch(() => {}),
       ]);
-      setMessages(msgs);
+
+      // Derive (and cache) the shared key for this partner
+      const sharedKey = await getSharedKeyForUser(user.id);
+      setE2ePartnerReady(!!sharedKey);
+
+      // Decrypt message history
+      const decrypted = sharedKey ? await decryptMsgList(msgs, user.id) : msgs;
+      setMessages(decrypted);
     } catch (e) {
       setError(toErrorMessage(e, "Failed to load messages."));
     } finally {
       setMsgLoading(false);
     }
-  }, []);
+  }, [getSharedKeyForUser, decryptMsgList]);
 
   // File selection
   function handleFileSelect(e) {
@@ -325,19 +445,18 @@ export default function ChatTab({ myId }) {
   async function uploadFile(file, type) {
     if (!supabase) throw new Error("Supabase client not available.");
 
-    // Ensure the Supabase client is authenticated with the user's real session
-    const accessToken = getAccessToken();
+    const accessToken  = getAccessToken();
     const refreshToken = getRefreshToken();
     if (accessToken) {
       await supabase.auth.setSession({
-        access_token: accessToken,
+        access_token:  accessToken,
         refresh_token: refreshToken || "",
       });
     }
 
-    const ext = file.name.split(".").pop();
+    const ext    = file.name.split(".").pop();
     const folder = type === "image" ? "images" : type === "video" ? "videos" : "files";
-    const path = `${myId}/${folder}/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
+    const path   = `${myId}/${folder}/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
     const { error: uploadErr } = await supabase.storage
       .from("chat-attachments")
       .upload(path, file, { cacheControl: "3600", upsert: false });
@@ -357,15 +476,27 @@ export default function ChatTab({ myId }) {
     const fileToSend = pendingFile;
     setPendingFile(null);
 
-    // Optimistic message
-    const tempId = `temp-${Date.now()}`;
+    // ── Encrypt text content if a shared key is available ────────────────────
+    // Falls back gracefully to plaintext when the partner has no key yet.
+    // NOTE: File attachments are stored via public Supabase Storage URLs
+    // and are not client-side encrypted in this version; only text is.
+    let messageContent = content;
+    const sharedKey = content
+      ? await getSharedKeyForUser(selectedUser.id).catch(() => null)
+      : null;
+    if (sharedKey && content) {
+      messageContent = await encryptMessage(sharedKey, content);
+    }
+
+    // Optimistic message — always display plaintext locally
+    const tempId  = `temp-${Date.now()}`;
     const tempMsg = {
-      id: tempId,
-      sender_id: myId,
-      receiver_id: selectedUser.id,
-      content,
-      created_at: new Date().toISOString(),
-      attachment_url: fileToSend?.previewUrl ?? null,
+      id:              tempId,
+      sender_id:       myId,
+      receiver_id:     selectedUser.id,
+      content,                           // plaintext for local display
+      created_at:      new Date().toISOString(),
+      attachment_url:  fileToSend?.previewUrl ?? null,
       attachment_type: fileToSend?.type ?? null,
       attachment_name: fileToSend?.file?.name ?? null,
       attachment_size: fileToSend?.file?.size ?? null,
@@ -376,9 +507,9 @@ export default function ChatTab({ myId }) {
       [selectedUser.id]: {
         ...(prev[selectedUser.id] || {}),
         last_message: {
-          content,
-          created_at: tempMsg.created_at,
-          sender_id: myId,
+          content,                        // plaintext in sidebar preview
+          created_at:      tempMsg.created_at,
+          sender_id:       myId,
           attachment_type: fileToSend?.type ?? null,
           attachment_name: fileToSend?.file?.name ?? null,
         },
@@ -391,7 +522,6 @@ export default function ChatTab({ myId }) {
 
       if (fileToSend) {
         const fileToUpload = fileToSend.file;
-
         setUploadProgress(true);
         const url = await uploadFile(fileToUpload, fileToSend.type);
         setUploadProgress(false);
@@ -403,14 +533,20 @@ export default function ChatTab({ myId }) {
           size: fileToUpload.size,
         };
 
-        // Update optimistic message with real upload URL
         setMessages((prev) =>
-          prev.map((m) => m.id === tempId ? { ...m, attachment_url: url, attachment_size: fileToUpload.size } : m)
+          prev.map((m) => m.id === tempId
+            ? { ...m, attachment_url: url, attachment_size: fileToUpload.size }
+            : m
+          )
         );
       }
 
-      const saved = await sendMessage(selectedUser.id, content, attachment);
-      setMessages((prev) => prev.map((m) => (m.id === tempId ? saved ?? m : m)));
+      // messageContent is encrypted (or plain if no shared key)
+      const saved = await sendMessage(selectedUser.id, messageContent, attachment);
+
+      // Replace optimistic entry — keep plaintext content since we know it
+      const savedDecrypted = saved ? { ...saved, content } : null;
+      setMessages((prev) => prev.map((m) => (m.id === tempId ? savedDecrypted ?? m : m)));
     } catch (e) {
       setUploadProgress(false);
       setMessages((prev) => prev.filter((m) => m.id !== tempId));
@@ -419,7 +555,7 @@ export default function ChatTab({ myId }) {
       setSending(false);
       if (fileToSend?.previewUrl) URL.revokeObjectURL(fileToSend.previewUrl);
     }
-  }, [input, pendingFile, selectedUser, sending, myId]);
+  }, [input, pendingFile, selectedUser, sending, myId, getSharedKeyForUser]);
 
   const handleKeyDown = useCallback((e) => {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void handleSend(); }
@@ -436,7 +572,7 @@ export default function ChatTab({ myId }) {
   }, [loadAll]);
 
   const isEmpty = connections.length === 0 && pendingRequests.length === 0;
-  const isBusy = uploadProgress;
+  const isBusy  = uploadProgress;
 
   // ─────────────────────────────────────────────────────────────────────────────
   return (
@@ -500,8 +636,8 @@ export default function ChatTab({ myId }) {
             {/* Conversation list */}
             <div className="divide-y divide-white/5">
               {sortedConnections.map(({ connection_id, user }) => {
-                const preview = previews[user.id];
-                const unread = preview?.unread_count || 0;
+                const preview  = previews[user.id];
+                const unread   = preview?.unread_count || 0;
                 const isActive = selectedUser?.id === user.id;
 
                 return (
@@ -553,10 +689,34 @@ export default function ChatTab({ myId }) {
             {/* Header */}
             <div className="flex items-center gap-3 border-b border-white/10 px-5 py-3.5">
               <Avatar user={selectedUser} size="lg" />
-              <div>
-                <p className="text-sm font-semibold text-white">{userDisplayName(selectedUser)}</p>
-                <p className="text-xs text-slate-400">@{selectedUser.username}</p>
+              <div className="min-w-0 flex-1">
+                {selectedUser?.username ? (
+                  <Link
+                    to={`/profile/${encodeURIComponent(selectedUser.username)}`}
+                    className="block min-w-0 rounded-lg outline-none transition focus-visible:ring-2 focus-visible:ring-emerald-400/45"
+                    title={`View @${selectedUser.username}'s profile`}
+                  >
+                    <p className="truncate text-sm font-semibold text-white underline-offset-2 hover:text-emerald-300 hover:underline">
+                      {userDisplayName(selectedUser)}
+                    </p>
+                    <p className="truncate text-xs text-slate-400 hover:text-emerald-400/90">
+                      @{selectedUser.username}
+                    </p>
+                  </Link>
+                ) : (
+                  <>
+                    <p className="truncate text-sm font-semibold text-white">{userDisplayName(selectedUser)}</p>
+                    <p className="truncate text-xs text-slate-400">@{selectedUser.username}</p>
+                  </>
+                )}
               </div>
+              {/* E2E encryption status badge — only shown when both parties have keys */}
+              {e2ePartnerReady && (
+                <span className="flex shrink-0 items-center gap-1 rounded-full border border-emerald-500/25 bg-emerald-500/10 px-2.5 py-1 text-[10px] font-medium text-emerald-400">
+                  <Lock className="h-2.5 w-2.5" />
+                  End-to-end encrypted
+                </span>
+              )}
             </div>
 
             {/* Messages */}
@@ -610,9 +770,7 @@ export default function ChatTab({ myId }) {
                 )}
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium text-white">{pendingFile.file.name}</p>
-                  <p className="text-xs text-slate-400">
-                    {formatBytes(pendingFile.file.size)}
-                  </p>
+                  <p className="text-xs text-slate-400">{formatBytes(pendingFile.file.size)}</p>
                 </div>
                 <button onClick={removePendingFile}
                   className="rounded-full p-1 text-slate-400 transition hover:bg-white/10 hover:text-white">
