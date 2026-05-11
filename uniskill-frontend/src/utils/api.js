@@ -330,3 +330,34 @@ export async function createMeeting(body) {
 export async function cancelMeeting(meetingId) {
   return authRequest(`/api/meetings/${encodeURIComponent(meetingId)}`, { method: "DELETE" });
 }
+
+// ─── E2E Encryption Keys ──────────────────────────────────────────────────────
+
+/**
+ * Upload (or update) the current user's ECDH P-256 public key.
+ * This is an idempotent upsert — safe to call on every login.
+ * @param {string} publicKeyB64  base64-encoded SPKI public key
+ */
+export async function uploadMyPublicKey(publicKeyB64) {
+  return authRequest("/api/keys/me", {
+    method: "POST",
+    body: { public_key: publicKeyB64 },
+  });
+}
+
+/**
+ * Fetch another user's ECDH P-256 public key from the server.
+ * Returns null when the user has not yet generated / uploaded a key
+ * (i.e. E2E is unavailable for that conversation — fall back to plaintext).
+ * @param {string} userId
+ * @returns {Promise<string|null>}  base64 SPKI string, or null
+ */
+export async function getUserPublicKey(userId) {
+  try {
+    const json = await authRequest(`/api/keys/${encodeURIComponent(userId)}`);
+    return json?.public_key ?? null;
+  } catch (e) {
+    if (e?.status === 404) return null;
+    throw e;
+  }
+}
