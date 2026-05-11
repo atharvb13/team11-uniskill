@@ -4,17 +4,29 @@ import { motion } from "framer-motion";
 import {
   ArrowLeft,
   BookOpen,
+  Calendar,
+  Check,
+  Clock,
   ExternalLink,
+  FileText,
   Github,
   GraduationCap,
+  Home,
+  ImageIcon,
   Linkedin,
   Loader2,
+  MessageSquare,
+  Paperclip,
+  Pencil,
   Sparkles,
   Star,
   Target,
+  UserPlus,
   UserX,
+  Video,
+  X,
 } from "lucide-react";
-import { getMyProfile, getPublicProfile, upsertTeachingReview } from "../utils/api";
+import { getConnectionStatus, getMyProfile, getPublicProfile, getWorkSamples, sendConnectionRequest, upsertTeachingReview } from "../utils/api";
 import { hasActiveSession } from "../utils/session";
 
 const fadeUp = {
@@ -90,6 +102,16 @@ export default function UserProfilePage() {
   const [reviewError, setReviewError] = useState("");
   const [reviewSuccess, setReviewSuccess] = useState("");
 
+  // Work samples modal state
+  const [samplesModal, setSamplesModal] = useState(null); // { skillName, userSkillId }
+  const [modalSamples, setModalSamples] = useState([]);
+  const [modalSamplesLoading, setModalSamplesLoading] = useState(false);
+  const [modalSamplesError, setModalSamplesError] = useState("");
+
+  // Connection state
+  const [connStatus, setConnStatus] = useState("none"); // 'none' | 'pending' | 'accepted' | 'self'
+  const [connLoading, setConnLoading] = useState(false);
+
   useEffect(() => {
     if (!username) return;
     let cancelled = false;
@@ -134,6 +156,25 @@ export default function UserProfilePage() {
     return () => { cancelled = true; };
   }, [username]);
 
+  // Load connection status when we have both the viewer and the profile
+  useEffect(() => {
+    const targetId = profile?.profile_user_id;
+    if (!targetId || !me || !hasActiveSession()) {
+      setConnStatus("none");
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await getConnectionStatus(targetId);
+        if (!cancelled) setConnStatus(res?.status ?? "none");
+      } catch {
+        if (!cancelled) setConnStatus("none");
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [profile?.profile_user_id, me]);
+
   useEffect(() => {
     const mr = profile?.teaching_reviews?.my_review;
     if (mr) {
@@ -176,6 +217,35 @@ export default function UserProfilePage() {
   const canReviewOthers =
     hasActiveSession() && Boolean(me) && Boolean(profile) && !isOwnProfile && teach.length > 0;
 
+  async function handleConnect() {
+    const targetId = profile?.profile_user_id;
+    if (!targetId || connLoading) return;
+    setConnLoading(true);
+    try {
+      await sendConnectionRequest(targetId);
+      setConnStatus("pending");
+    } catch {
+      // silently ignore duplicate-request errors; re-fetch actual status
+      try {
+        const res = await getConnectionStatus(targetId);
+        setConnStatus(res?.status ?? "none");
+      } catch { /* ignore */ }
+    } finally {
+      setConnLoading(false);
+    }
+  }
+
+  function openSamplesModal(skillName, userSkillId) {
+    setSamplesModal({ skillName, userSkillId });
+    setModalSamples([]);
+    setModalSamplesError("");
+    setModalSamplesLoading(true);
+    getWorkSamples(userSkillId)
+      .then((rows) => setModalSamples(rows || []))
+      .catch(() => setModalSamplesError("Could not load work samples."))
+      .finally(() => setModalSamplesLoading(false));
+  }
+
   async function handleReviewSubmit(e) {
     e.preventDefault();
     if (!profile?.username) return;
@@ -206,32 +276,61 @@ export default function UserProfilePage() {
       />
 
       <div className="relative mx-auto max-w-4xl px-4 pb-16 pt-8 sm:px-6 lg:px-8 lg:pt-10">
-        {/* Header */}
+        {/* Header — matches DashboardPage navbar */}
         <motion.header
           initial={{ opacity: 0, y: -10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.3 }}
           className="mb-10 flex items-center justify-between"
         >
-          <div className="flex items-center gap-4">
+          {/* Logo */}
+          <div className="flex shrink-0 items-center gap-2.5">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-emerald-400 to-teal-600 shadow-md shadow-emerald-900/40">
+              <Sparkles className="h-[15px] w-[15px] text-white" />
+            </div>
+            <span className="text-[15px] font-bold tracking-tight text-white">UniSkill</span>
+          </div>
+
+          {/* Nav tabs — navigate back to dashboard at the right tab */}
+          <nav className="flex items-center gap-6 sm:gap-8" aria-label="Dashboard navigation">
+            {[
+              { id: "home", label: "Home", icon: Home },
+              { id: "chat", label: "Chat", icon: MessageSquare },
+              { id: "schedule", label: "Schedule", icon: Calendar },
+              { id: "profile", label: "Profile", icon: isOwnProfile ? Pencil : GraduationCap },
+            ].map(({ id, label, icon: Icon }) => (
+              <button
+                key={id}
+                type="button"
+                onClick={() => navigate("/dashboard", { state: { tab: id } })}
+                className="flex items-center gap-1.5 text-[13px] font-medium text-slate-400 transition-colors hover:text-white"
+              >
+                <Icon className="h-[14px] w-[14px] text-slate-500" strokeWidth={2.2} />
+                {label}
+              </button>
+            ))}
+          </nav>
+
+          {/* Right action */}
+          {isOwnProfile ? (
+            <button
+              type="button"
+              onClick={() => navigate("/dashboard", { state: { tab: "profile" } })}
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-xl border border-emerald-400/30 bg-emerald-500/10 px-3.5 py-2 text-[13px] font-medium text-emerald-300 backdrop-blur-sm transition hover:bg-emerald-500/20 hover:text-white"
+            >
+              <Pencil className="h-3.5 w-3.5" />
+              Edit profile
+            </button>
+          ) : (
             <button
               type="button"
               onClick={() => navigate(-1)}
-              className="inline-flex items-center gap-1.5 rounded-xl border border-white/10 bg-white/5 px-3.5 py-2 text-[13px] font-medium text-slate-300 backdrop-blur-sm transition hover:bg-white/10 hover:text-white"
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-xl border border-white/10 bg-white/5 px-3.5 py-2 text-[13px] font-medium text-slate-300 backdrop-blur-sm transition hover:bg-white/10 hover:text-white"
             >
               <ArrowLeft className="h-3.5 w-3.5" />
               Back
             </button>
-            <div className="flex items-center gap-2.5">
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-emerald-400 to-teal-600 shadow-md shadow-emerald-900/40">
-                <Sparkles className="h-[15px] w-[15px] text-white" />
-              </div>
-              <span className="text-[15px] font-bold tracking-tight text-white">UniSkill</span>
-            </div>
-          </div>
-          <p className="text-sm text-slate-400">
-            @{username}
-          </p>
+          )}
         </motion.header>
 
         {/* Loading */}
@@ -375,6 +474,37 @@ export default function UserProfilePage() {
                       </span>
                     )}
                   </div>
+
+                  {/* Connect button — only for other users' profiles */}
+                  {!isOwnProfile && hasActiveSession() && me && (
+                    <div className="mt-4">
+                      {connStatus === "accepted" ? (
+                        <span className="inline-flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-800">
+                          <Check className="h-4 w-4" />
+                          Connected
+                        </span>
+                      ) : connStatus === "pending" ? (
+                        <span className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-4 py-2 text-sm font-semibold text-slate-600">
+                          <Clock className="h-4 w-4" />
+                          Requested
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled={connLoading}
+                          onClick={() => void handleConnect()}
+                          className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 px-4 py-2 text-sm font-semibold text-white shadow-md shadow-emerald-900/20 transition hover:brightness-105 disabled:opacity-50"
+                        >
+                          {connLoading ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <UserPlus className="h-4 w-4" />
+                          )}
+                          Connect
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
             </motion.section>
@@ -574,6 +704,16 @@ export default function UserProfilePage() {
                                 {s.category}
                               </p>
                             )}
+                            {s.user_skill_id && (
+                              <button
+                                type="button"
+                                onClick={() => openSamplesModal(s.name, s.user_skill_id)}
+                                className="mt-2.5 inline-flex items-center gap-1.5 rounded-xl border border-emerald-200 bg-white px-3 py-1.5 text-xs font-medium text-emerald-800 shadow-sm transition hover:bg-emerald-50"
+                              >
+                                <Paperclip className="h-3.5 w-3.5" />
+                                View work samples
+                              </button>
+                            )}
                           </div>
                         </li>
                       ))}
@@ -723,6 +863,87 @@ export default function UserProfilePage() {
           </div>
         )}
       </div>
+
+      {/* Work Samples Modal */}
+      {samplesModal ? (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/70 p-4 backdrop-blur-md">
+          <div className="max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-3xl border border-white/20 bg-white p-6 shadow-[0_25px_60px_-12px_rgba(0,0,0,0.5)] ring-1 ring-slate-900/5 sm:p-8">
+            <div className="flex items-center justify-between">
+              <div>
+                <h4 className="text-lg font-bold text-slate-900">{samplesModal.skillName}</h4>
+                <p className="mt-0.5 text-xs text-slate-500">Work samples</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSamplesModal(null)}
+                className="rounded-lg p-2 text-slate-400 hover:bg-slate-100"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="mt-5">
+              {modalSamplesLoading ? (
+                <div className="flex items-center justify-center py-10">
+                  <Loader2 className="h-7 w-7 animate-spin text-emerald-500" />
+                </div>
+              ) : modalSamplesError ? (
+                <p className="text-sm text-red-500">{modalSamplesError}</p>
+              ) : modalSamples.length === 0 ? (
+                <div className="flex flex-col items-center gap-3 py-10 text-center">
+                  <Paperclip className="h-10 w-10 text-slate-300" strokeWidth={1.5} />
+                  <p className="text-sm font-medium text-slate-500">No work samples uploaded yet.</p>
+                </div>
+              ) : (
+                <ul className="space-y-3">
+                  {modalSamples.map((s) => {
+                    const fileName = s.file_name || s.file_url.split("/").pop();
+                    const isImage = s.file_type === "image";
+                    const isVideo = s.file_type === "video";
+                    const isPdf = s.file_type === "pdf";
+                    return (
+                      <li key={s.id} className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-50/60">
+                        {isImage && (
+                          <a href={s.file_url} target="_blank" rel="noopener noreferrer">
+                            <img
+                              src={s.file_url}
+                              alt={fileName}
+                              className="max-h-56 w-full object-cover"
+                            />
+                          </a>
+                        )}
+                        {isVideo && (
+                          <video
+                            src={s.file_url}
+                            controls
+                            className="max-h-56 w-full rounded-t-2xl bg-black"
+                          />
+                        )}
+                        <div className="flex items-center justify-between gap-3 px-4 py-3">
+                          <span className="flex min-w-0 items-center gap-2 text-sm text-slate-700">
+                            {isPdf && <FileText className="h-4 w-4 shrink-0 text-red-500" />}
+                            {isVideo && <Video className="h-4 w-4 shrink-0 text-blue-500" />}
+                            {isImage && <ImageIcon className="h-4 w-4 shrink-0 text-emerald-500" />}
+                            <span className="truncate font-medium">{fileName}</span>
+                          </span>
+                          <a
+                            href={s.file_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="shrink-0 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 shadow-sm transition hover:bg-slate-50"
+                          >
+                            Open
+                          </a>
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

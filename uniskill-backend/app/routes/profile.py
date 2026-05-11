@@ -23,6 +23,9 @@ _DISCOVER_USER_SELECT = "id, username, first_name, last_name, bio"
 _DISCOVER_SKILL_SELECT = (
     "user_id, can_teach, wants_to_learn, proficiency_level, skills(name, category)"
 )
+_PUBLIC_SKILL_SELECT = (
+    "id, user_id, can_teach, wants_to_learn, proficiency_level, skills(name, category)"
+)
 _RECOMMEND_SKILL_SELECT = (
     "user_id, can_teach, wants_to_learn, proficiency_level, skills(name, category)"
 )
@@ -511,6 +514,7 @@ def get_public_profile(
 
     profile = dict(rows[0])
     user_id = profile.pop("id", None)
+    profile["profile_user_id"] = user_id  # expose for connection / other actions
 
     teach_skills: list[dict[str, Any]] = []
     learn_skills: list[dict[str, Any]] = []
@@ -519,7 +523,7 @@ def get_public_profile(
         try:
             skill_rows = (
                 supabase_admin_client.table("user_skills")
-                .select(_DISCOVER_SKILL_SELECT)
+                .select(_PUBLIC_SKILL_SELECT)
                 .eq("user_id", user_id)
                 .execute()
                 .data
@@ -534,6 +538,7 @@ def get_public_profile(
             if not isinstance(skill, dict):
                 continue
             payload = {
+                "user_skill_id": row.get("id"),
                 "name": skill.get("name"),
                 "category": skill.get("category"),
                 "proficiency_level": row.get("proficiency_level"),
