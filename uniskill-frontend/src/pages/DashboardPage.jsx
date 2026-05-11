@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { Calendar, Eye, Home, Loader2, LogOut, MessageSquare, RefreshCw, Sparkles, User } from "lucide-react";
 import DashboardBody from "../components/dashboard/DashboardBody";
 import HomeTab from "../components/dashboard/HomeTab";
@@ -23,15 +23,19 @@ const fadeUp = {
   animate: { opacity: 1, y: 0 },
 };
 
+const VALID_TABS = new Set(["home", "chat", "schedule", "profile"]);
+
 export default function DashboardPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [profile, setProfile] = useState(null);
   const [skills, setSkills] = useState([]);
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [resetting, setResetting] = useState(false);
-  const [activeTab, setActiveTab] = useState("home");
+  const initialTab = VALID_TABS.has(location.state?.tab) ? location.state.tab : "home";
+  const [activeTab, setActiveTab] = useState(initialTab);
   const [pendingCount, setPendingCount] = useState(0);
 
   const loadDashboard = useCallback(async () => {

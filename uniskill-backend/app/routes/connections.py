@@ -260,3 +260,42 @@ def reject_connection(
         raise HTTPException(status_code=500, detail=str(e)) from e
 
     return {"message": "Connection rejected."}
+
+
+@router.get("/status/{target_user_id}")
+def get_connection_status(
+    target_user_id: str,
+    user_id: str = Depends(get_current_user_id),
+) -> Any:
+    """Return the connection status between the current user and target_user_id.
+
+    Returns: { status: 'none' | 'pending' | 'accepted', connection_id, i_am_requester }
+    """
+    if target_user_id == user_id:
+        return {"status": "self", "connection_id": None, "i_am_requester": False}
+
+    try:
+        rows = (
+            supabase_admin_client.table("connections")
+            .select("id, status, requester_id, receiver_id")
+            .or_(
+                f"and(requester_id.eq.{user_id},receiver_id.eq.{target_user_id})"
+                f",and(requester_id.eq.{target_user_id},receiver_id.eq.{user_id})"
+            )
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+    except APIError as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+    if not rows:
+        return {"status": "none", "connection_id": None, "i_am_requester": False}
+
+    conn = rows[0]
+    return {
+        "status": conn["status"],
+        "connection_id": conn["id"],
+        "i_am_requester": conn["requester_id"] == user_id,
+    }

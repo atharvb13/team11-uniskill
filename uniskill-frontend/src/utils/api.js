@@ -153,6 +153,32 @@ export async function getPublicProfile(username) {
   return authRequest(`/api/profile/${encodeURIComponent(username)}`, { method: "GET" });
 }
 
+// ─── Work Samples ─────────────────────────────────────────────────────────────
+
+/**
+ * Save work sample metadata after the file has been uploaded to Supabase Storage.
+ * @param {{ user_skill_id: string, file_url: string, file_type: string, file_name?: string, file_size?: number }} payload
+ */
+export async function addWorkSample(payload) {
+  return authRequest("/api/work-samples", { method: "POST", body: payload });
+}
+
+/**
+ * Get all work samples for a given user_skill_id (public).
+ * @param {string} userSkillId
+ */
+export async function getWorkSamples(userSkillId) {
+  return authRequest(`/api/work-samples/${encodeURIComponent(userSkillId)}`, { method: "GET" });
+}
+
+/**
+ * Delete a work sample by its ID.
+ * @param {string} sampleId
+ */
+export async function deleteWorkSample(sampleId) {
+  return authRequest(`/api/work-samples/${encodeURIComponent(sampleId)}`, { method: "DELETE" });
+}
+
 /**
  * Star rating + text for a member who teaches at least one skill (upsert per viewer).
  * @param {{ teacherUsername: string, rating: number, body: string }} payload
@@ -231,6 +257,15 @@ export async function listCatalogSkills() {
 }
 
 // ─── Connections ──────────────────────────────────────────────────────────────
+
+/**
+ * Check the connection status between the current user and another user.
+ * @param {string} targetUserId
+ * @returns {Promise<{ status: 'none'|'pending'|'accepted'|'self', connection_id: string|null, i_am_requester: boolean }>}
+ */
+export async function getConnectionStatus(targetUserId) {
+  return authRequest(`/api/connections/status/${encodeURIComponent(targetUserId)}`, { method: "GET" });
+}
 
 /** Send a connection request to another user */
 export async function sendConnectionRequest(receiverId) {
@@ -334,4 +369,35 @@ export async function createMeeting(body) {
 
 export async function cancelMeeting(meetingId) {
   return authRequest(`/api/meetings/${encodeURIComponent(meetingId)}`, { method: "DELETE" });
+}
+
+// ─── E2E Encryption Keys ──────────────────────────────────────────────────────
+
+/**
+ * Upload (or update) the current user's ECDH P-256 public key.
+ * This is an idempotent upsert — safe to call on every login.
+ * @param {string} publicKeyB64  base64-encoded SPKI public key
+ */
+export async function uploadMyPublicKey(publicKeyB64) {
+  return authRequest("/api/keys/me", {
+    method: "POST",
+    body: { public_key: publicKeyB64 },
+  });
+}
+
+/**
+ * Fetch another user's ECDH P-256 public key from the server.
+ * Returns null when the user has not yet generated / uploaded a key
+ * (i.e. E2E is unavailable for that conversation — fall back to plaintext).
+ * @param {string} userId
+ * @returns {Promise<string|null>}  base64 SPKI string, or null
+ */
+export async function getUserPublicKey(userId) {
+  try {
+    const json = await authRequest(`/api/keys/${encodeURIComponent(userId)}`);
+    return json?.public_key ?? null;
+  } catch (e) {
+    if (e?.status === 404) return null;
+    throw e;
+  }
 }
