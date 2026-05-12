@@ -445,13 +445,3 @@ Load test example:
 
 Latest load test result: **1000/1000** successful requests, about **2078 requests/sec**, with p95 latency about **48.43 ms**.
 
----
-
-## Future Improvements
-
-- Add React component tests for login, registration, dashboard, profile, chat, and scheduler screens
-- Add deeper endpoint tests for Supabase-backed routes using mocked table clients
-- Expand load testing beyond `/health` to search, chat, profile loading, and scheduling workflows
-- Improve recommendation badge explanations and skill-level helper text based on user survey feedback
-
----
