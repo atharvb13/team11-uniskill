@@ -10,6 +10,8 @@ The primary users of UniSkill are students from the Five College community (it w
 
 UniSkill allows students to sign up with their UMass email, build a skill profile, and discover peers who can teach what they want to learn. The platform is built with a React frontend, a FastAPI backend, and a PostgreSQL database managed through Supabase.
 
+Evaluation report: see `EVALUATION.md`.
+
 ---
 
 ## Tech Stack
@@ -26,14 +28,16 @@ UniSkill allows students to sign up with their UMass email, build a skill profil
 ### Authentication
 - User registration restricted to `@umass.edu` email addresses
 - Login via UMass email or username
+- Google/Supabase auth callback support
 - JWT based session management
 - Email confirmation flow with configurable auto confirm for development
 - bcrypt password hashing stored alongside Supabase Auth credentials
 - Client side and server side validation for all auth inputs
 
 ### User Profile
-- Fetch and update profile information including first name, last name, and bio
+- Fetch and update profile information including first name, last name, bio, program, degree type, profile image, and external links
 - Public profile endpoint accessible by username
+- Public profile page for viewing another user's profile, skills, reviews, and work samples
 - Profile data persisted in the `public.users` table linked to Supabase Auth
 
 ### Skill Management
@@ -43,6 +47,11 @@ UniSkill allows students to sign up with their UMass email, build a skill profil
 - Remove skills from a profile
 - Skills are created in a shared catalogue on first use and reused across users
 - Skill names are normalized to title case to avoid duplicates
+
+### Discovery and Recommendations
+- Discover other users and their teach/learn skills
+- Search users by username, first name, last name, and skill name
+- Personalized recommendation endpoint for mutual skill exchanges and one way learning matches
 
 ### Onboarding
 - Three step onboarding modal shown to new users on first login
@@ -56,7 +65,20 @@ UniSkill allows students to sign up with their UMass email, build a skill profil
 - Editable name and bio fields with save functionality
 - Two skill panels showing learning goals and teachable skills
 - Add, edit, and delete modals for managing skills post onboarding
+- Home, schedule, and chat tabs
 - Rerun setup option to reset and redo the onboarding flow
+
+### Collaboration
+- Connection request flow with pending, sent, accepted, and rejected states
+- Meeting scheduler for collaboration sessions
+- Chat previews, message history, sending messages, and read status
+- End to end encryption key endpoints for chat support
+
+### Reviews and Portfolio
+- Teaching review submission and deletion
+- Review display on public profiles
+- Work sample upload, viewing, and deletion for user skills
+- Optional portfolio, GitHub, and LinkedIn profile links
 
 ---
 
@@ -70,12 +92,23 @@ uniskill/
 │   │   ├── supabase_clients.py   # Supabase admin and auth client setup
 │   │   ├── routes/
 │   │   │   ├── auth.py           # Register and login endpoints
-│   │   │   ├── profile.py        # Profile fetch and update endpoints
-│   │   │   └── skills.py         # Skill catalogue and user skill endpoints
+│   │   │   ├── connections.py    # Connection request endpoints
+│   │   │   ├── keys.py           # E2E public key endpoints
+│   │   │   ├── meetings.py       # Scheduler endpoints
+│   │   │   ├── messages.py       # Chat endpoints
+│   │   │   ├── profile.py        # Profile, search, recommendations
+│   │   │   ├── reviews.py        # Teaching review endpoints
+│   │   │   ├── skills.py         # Skill catalogue and user skill endpoints
+│   │   │   └── work_samples.py   # Portfolio work sample endpoints
 │   │   └── utils/
 │   │       ├── validation.py     # Email, username, and password validation
 │   │       └── auth_env.py       # Auto confirm email environment flag
-│   ├── supabase-schema.sql       # Database schema
+│   ├── test/                     # Pytest, integration, and load tests
+│   ├── supabase-schema.sql       # Base database schema
+│   ├── chat-schema.sql           # Chat tables
+│   ├── supabase-meetings.sql     # Meeting scheduler table
+│   ├── work-samples-schema.sql   # Work sample table
+│   ├── e2e-keys-schema.sql       # Chat key table
 │   └── requirements.txt
 │
 └── uniskill-frontend/
@@ -85,6 +118,8 @@ uniskill/
     │   │   ├── LoginPage.jsx              # Login UI
     │   │   ├── RegisterPage.jsx           # Registration UI
     │   │   ├── DashboardPage.jsx          # Main dashboard
+    │   │   ├── UserProfilePage.jsx        # Public user profile page
+    │   │   ├── AuthCallbackPage.jsx       # Supabase OAuth callback
     │   │   └── EmailConfirmedPage.jsx     # Post email confirmation landing
     │   ├── components/
     │   │   ├── AuthLayout.jsx             # Shared shell for auth pages
@@ -94,12 +129,17 @@ uniskill/
     │   │   ├── ProfileOnboardingModal.jsx # First login setup wizard
     │   │   └── dashboard/
     │   │       ├── DashboardBody.jsx      # Profile and skill management UI
+    │   │       ├── HomeTab.jsx            # Discovery and recommendations
+    │   │       ├── ScheduleTab.jsx        # Meetings UI
+    │   │       ├── ChatTab.jsx            # Chat UI
     │   │       └── skillConstants.js      # Proficiency level options
     │   └── utils/
     │       ├── api.js             # All backend HTTP calls
+    │       ├── e2eEncryption.js   # Browser crypto helpers for chat
     │       ├── session.js         # Token storage and session helpers
     │       ├── validation.js      # Client side form validation
-    │       └── onboardingLocal.js # Local onboarding state helpers
+    │       ├── onboardingLocal.js # Local onboarding state helpers
+    │       └── videoCompressor.js # Work sample media helper
     └── package.json
 ```
 
@@ -154,6 +194,14 @@ Junction table linking users to skills with flags and proficiency.
 
 Unique constraint on `(user_id, skill_id)`.
 
+Additional tables are created by the companion SQL files:
+
+- `supabase-meetings.sql` for scheduled collaboration sessions
+- `chat-schema.sql` and `chat-attachments-schema.sql` for chat data
+- `supabase-teacher-reviews.sql` or `supabase-teacher-reviews-session-verified.sql` for reviews
+- `work-samples-schema.sql` for portfolio work samples
+- `e2e-keys-schema.sql` for encrypted chat key lookup
+
 ---
 
 ## API Endpoints
@@ -168,6 +216,7 @@ Unique constraint on `(user_id, skill_id)`.
 |---|---|---|
 | POST | `/api/auth/register` | Register a new user |
 | POST | `/api/auth/login` | Login with email or username |
+| POST | `/api/auth/google` | Login/register from Supabase OAuth user data |
 
 **Register body:**
 ```json
@@ -193,7 +242,10 @@ or
 | Method | Path | Auth | Description |
 |---|---|---|---|
 | GET | `/api/profile/me` | Required | Get logged in user profile |
-| PATCH | `/api/profile/me` | Required | Update name, bio, or profile picture |
+| PATCH | `/api/profile/me` | Required | Update profile fields |
+| GET | `/api/profile/discover` | Required | List other users and their skills |
+| GET | `/api/profile/search` | Required | Search users by name, username, or skill |
+| GET | `/api/profile/recommendations` | Required | Get personalized skill recommendations |
 | GET | `/api/profile/{username}` | None | Get public profile by username |
 
 ### Skills
@@ -204,6 +256,43 @@ or
 | POST | `/api/skills/me` | Required | Add a skill to user profile |
 | PATCH | `/api/skills/me/{skill_id}` | Required | Update a user skill |
 | DELETE | `/api/skills/me/{skill_id}` | Required | Remove a skill from profile |
+
+### Connections
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| POST | `/api/connections/request` | Required | Send a connection request |
+| GET | `/api/connections` | Required | List accepted connections |
+| GET | `/api/connections/pending` | Required | List received pending requests |
+| GET | `/api/connections/sent` | Required | List sent requests |
+| POST | `/api/connections/{connection_id}/accept` | Required | Accept a request |
+| POST | `/api/connections/{connection_id}/reject` | Required | Reject a request |
+| GET | `/api/connections/status/{target_user_id}` | Required | Get connection status |
+
+### Messages
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| GET | `/api/messages/previews` | Required | List chat previews |
+| GET | `/api/messages/{other_user_id}` | Required | Get chat history |
+| POST | `/api/messages/{other_user_id}` | Required | Send a message |
+| PATCH | `/api/messages/{other_user_id}/read` | Required | Mark messages as read |
+
+### Meetings
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| GET | `/api/meetings` | Required | List meetings |
+| POST | `/api/meetings` | Required | Create a meeting |
+| DELETE | `/api/meetings/{meeting_id}` | Required | Delete a meeting |
+
+### Reviews, Work Samples, and Keys
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| POST | `/api/reviews` | Required | Submit or update a teaching review |
+| DELETE | `/api/reviews/{review_id}` | Required | Delete a review |
+| POST | `/api/work-samples` | Required | Add a work sample |
+| GET | `/api/work-samples/{user_skill_id}` | Required | List work samples for a skill |
+| DELETE | `/api/work-samples/{sample_id}` | Required | Delete a work sample |
+| POST | `/api/keys/me` | Required | Save current user's public chat key |
+| GET | `/api/keys/{target_user_id}` | Required | Get another user's public chat key |
 
 ---
 
@@ -236,6 +325,16 @@ cp .env.example .env
 5. Run the database schema in your Supabase SQL Editor:
 ```
 supabase-schema.sql
+```
+
+Run the additional SQL files for optional collaboration features:
+```
+supabase-meetings.sql
+chat-schema.sql
+chat-attachments-schema.sql
+supabase-teacher-reviews-session-verified.sql
+work-samples-schema.sql
+e2e-keys-schema.sql
 ```
 
 6. Start the server:
@@ -302,14 +401,57 @@ The API upserts into `public.users` after Supabase Auth signup using the service
 
 ---
 
-## Planned Features (Post Midpoint)
+## Testing and Coverage
 
-- Skill based search and user discovery with autocomplete
-- Recommendation engine matching learners to teachers
-- Learning request system with daily limits and request expiry
-- 1:1 chat between matched users using Supabase Realtime
-- Profile completion gating for request and chat access
-- Additional profile fields including location, social handles, program, and degree type
-- Compulsory learning motivation description per skill
+### Backend
+
+Run tests from `uniskill-backend`:
+```
+./.venv/bin/python -m pytest -q
+```
+
+Run backend coverage:
+```
+./.venv/bin/python -m pytest --cov=app --cov-report=term -q
+```
+
+Current configured backend coverage: **98%** with **27/27** tests passing.
+
+### Frontend
+
+Run tests from `uniskill-frontend`:
+```
+npm run test
+```
+
+Run frontend coverage:
+```
+npm run test:coverage
+```
+
+Current configured frontend coverage: **93.8%** with **19/19** tests passing.
+
+### Integration and Load Tests
+
+Run the backend server first, then from `uniskill-backend`:
+```
+./.venv/bin/python test/integration_smoke.py --base-url http://127.0.0.1:4000
+```
+
+Load test example:
+```
+./.venv/bin/python test/load_test_health.py --url http://127.0.0.1:4000/health --requests 1000 --concurrency 100
+```
+
+Latest load test result: **1000/1000** successful requests, about **2078 requests/sec**, with p95 latency about **48.43 ms**.
+
+---
+
+## Future Improvements
+
+- Add React component tests for login, registration, dashboard, profile, chat, and scheduler screens
+- Add deeper endpoint tests for Supabase-backed routes using mocked table clients
+- Expand load testing beyond `/health` to search, chat, profile loading, and scheduling workflows
+- Improve recommendation badge explanations and skill-level helper text based on user survey feedback
 
 ---
