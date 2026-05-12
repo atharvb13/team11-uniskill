@@ -42,9 +42,9 @@ export default function AuthLayout({ title, subtitle, children }) {
 
               <div className="rounded-3xl border border-white/10 bg-white/10 p-5">
                 <ArrowRight className="mb-3 h-8 w-8 text-sky-300" />
-                <h3 className="text-base font-semibold">Quick onboarding</h3>
+                <h3 className="text-base font-semibold">Skill-based matching</h3>
                 <p className="mt-2 text-sm text-slate-300">
-                  Dedicated pages for login and registration with a polished frontend flow.
+                  Add what you want to learn and what you can teach, then discover peers with complementary skills.
                 </p>
               </div>
             </div>
