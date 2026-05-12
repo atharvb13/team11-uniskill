@@ -34,6 +34,32 @@ function attachStatus(err, status, details) {
   return e;
 }
 
+function backendReachabilityMessage() {
+  return `Could not reach the UniSkill backend at ${API_BASE_URL}. Make sure uniskill-backend is running and VITE_API_BASE_URL points to the backend server.`;
+}
+
+function normalizeNetworkError(err) {
+  const message = err instanceof Error ? err.message : String(err || "");
+  const isFetchFailure =
+    err instanceof TypeError ||
+    message.toLowerCase().includes("failed to fetch") ||
+    message.toLowerCase().includes("networkerror");
+
+  if (isFetchFailure) {
+    return attachStatus(new Error(backendReachabilityMessage()), 0, { code: "network_error" });
+  }
+
+  return err instanceof Error ? err : new Error(message || "Network request failed.");
+}
+
+async function apiFetch(path, options) {
+  try {
+    return await fetch(`${API_BASE_URL}${path}`, options);
+  } catch (err) {
+    throw normalizeNetworkError(err);
+  }
+}
+
 async function parseJsonResponse(response) {
   const text = await response.text();
   let json = {};
@@ -51,7 +77,7 @@ async function parseJsonResponse(response) {
 }
 
 async function sendRequest(path, payload) {
-  const response = await fetch(`${API_BASE_URL}${path}`, {
+  const response = await apiFetch(path, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -78,7 +104,7 @@ export async function authRequest(path, options = {}) {
     headers["Content-Type"] = "application/json";
   }
 
-  const response = await fetch(`${API_BASE_URL}${path}`, {
+  const response = await apiFetch(path, {
     method,
     headers,
     body: body != null ? JSON.stringify(body) : undefined,
@@ -105,7 +131,7 @@ export async function syncGoogleSession(session) {
     throw new Error("Google sign-in did not return a session.");
   }
 
-  const response = await fetch(`${API_BASE_URL}/api/auth/google`, {
+  const response = await apiFetch("/api/auth/google", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -127,7 +153,7 @@ export async function getMyProfile() {
     throw new Error("Not signed in.");
   }
 
-  const response = await fetch(`${API_BASE_URL}/api/profile/me`, {
+  const response = await apiFetch("/api/profile/me", {
     headers: { Authorization: `Bearer ${token}` },
   });
 
@@ -252,7 +278,7 @@ export async function updateMySkill(skillId, body) {
 
 /** Public catalogue — no auth */
 export async function listCatalogSkills() {
-  const response = await fetch(`${API_BASE_URL}/api/skills`);
+  const response = await apiFetch("/api/skills");
   return parseJsonResponse(response);
 }
 
