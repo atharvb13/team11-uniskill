@@ -10,6 +10,8 @@ The primary users of UniSkill are students from the Five College community (it w
 
 UniSkill allows students to sign up with their UMass email, build a skill profile, and discover peers who can teach what they want to learn. The platform is built with a React frontend, a FastAPI backend, and a PostgreSQL database managed through Supabase.
 
+Evaluation report: see `EVALUATION.md`.
+
 ---
 
 ## Tech Stack

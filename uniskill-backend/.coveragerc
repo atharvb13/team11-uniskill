@@ -1,0 +1,7 @@
+[run]
+source = app
+omit =
+    app/routes/*
+
+[report]
+show_missing = True

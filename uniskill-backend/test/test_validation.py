@@ -58,6 +58,33 @@ def test_validate_registration_input_rejects_non_umass_email() -> None:
     assert result == {"ok": False, "message": "Use a valid @umass.edu email address."}
 
 
+def test_validate_registration_input_rejects_required_and_format_errors() -> None:
+    base = {
+        "firstName": "Jane",
+        "lastName": "Doe",
+        "username": "janedoe",
+        "email": "jane@umass.edu",
+        "password": "StrongPass1",
+    }
+
+    assert validate_registration_input({**base, "firstName": ""}) == {
+        "ok": False,
+        "message": "First name is required.",
+    }
+    assert validate_registration_input({**base, "lastName": " "}) == {
+        "ok": False,
+        "message": "Last name is required.",
+    }
+    assert validate_registration_input({**base, "username": "jd!"}) == {
+        "ok": False,
+        "message": "Username must be 3-30 characters and contain only letters, numbers, or underscores.",
+    }
+    assert validate_registration_input({**base, "password": "weak"}) == {
+        "ok": False,
+        "message": "Password must be at least 8 characters and include uppercase, lowercase, and a number.",
+    }
+
+
 def test_validate_login_input_accepts_email_identifier() -> None:
     result = validate_login_input({"identifier": " Student@umass.edu ", "password": "StrongPass1"})
     assert result["ok"] is True
@@ -75,3 +102,18 @@ def test_validate_login_input_accepts_username_identifier() -> None:
 def test_validate_login_input_requires_password() -> None:
     result = validate_login_input({"identifier": "student_123", "password": ""})
     assert result == {"ok": False, "message": "Password is required."}
+
+
+def test_validate_login_input_rejects_missing_and_invalid_identifier() -> None:
+    assert validate_login_input({"identifier": "", "password": "StrongPass1"}) == {
+        "ok": False,
+        "message": "Enter your UMass email or username.",
+    }
+    assert validate_login_input({"identifier": "student@gmail.com", "password": "StrongPass1"}) == {
+        "ok": False,
+        "message": "Use a valid @umass.edu email address.",
+    }
+    assert validate_login_input({"identifier": "ab", "password": "StrongPass1"}) == {
+        "ok": False,
+        "message": "Username must be 3-30 characters (letters, numbers, underscore).",
+    }
